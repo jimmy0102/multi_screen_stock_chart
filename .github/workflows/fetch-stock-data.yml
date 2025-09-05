@@ -1,10 +1,15 @@
-name: Fetch Stock Data
+name: Daily Stock Data Fetch
 
 on:
   schedule:
-    # 毎日午前6時（JST 15:00）に実行
+    # 毎日午前6時（JST）に実行 - 市場終了後の安全な時間
     - cron: '0 21 * * *'  # UTC 21:00 = JST 6:00
   workflow_dispatch:  # 手動実行も可能
+    inputs:
+      target_date:
+        description: 'Target date (YYYY-MM-DD). Leave empty for latest business day'
+        required: false
+        type: string
 
 jobs:
   fetch-data:
@@ -17,20 +22,38 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
+        cache: 'npm'
         
     - name: Install dependencies
-      run: npm ci
-      
-    - name: Fetch J-Quants data and update Supabase
+      run: |
+        npm ci
+        # Ensure required packages are installed
+        npm install --save-dev @supabase/supabase-js axios
+        
+    - name: Fetch daily J-Quants data and update Supabase
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         JQUANTS_EMAIL: ${{ secrets.JQUANTS_EMAIL }}
         JQUANTS_PASSWORD: ${{ secrets.JQUANTS_PASSWORD }}
+        TARGET_DATE: ${{ inputs.target_date }}
       run: |
+        echo "🚀 Starting daily stock data fetch..."
+        echo "📅 Target date: ${TARGET_DATE:-auto}"
         node scripts/fetch-jquants-daily.js
         
-    - name: Log results
+    - name: Upload logs as artifact
       if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: daily-fetch-logs-${{ github.run_number }}
+        path: |
+          *.log
+          bulk-fetch-progress.json
+        retention-days: 7
+        
+    - name: Log completion
+      if: success()
       run: |
-        echo "Stock data fetch completed at $(date)"
+        echo "✅ Daily stock data fetch completed successfully at $(date)"
