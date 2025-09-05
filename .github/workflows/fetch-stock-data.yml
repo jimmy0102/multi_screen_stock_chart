@@ -1,0 +1,36 @@
+name: Fetch Stock Data
+
+on:
+  schedule:
+    # 毎日午前6時（JST 15:00）に実行
+    - cron: '0 21 * * *'  # UTC 21:00 = JST 6:00
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Fetch J-Quants data and update Supabase
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        JQUANTS_EMAIL: ${{ secrets.JQUANTS_EMAIL }}
+        JQUANTS_PASSWORD: ${{ secrets.JQUANTS_PASSWORD }}
+      run: |
+        node scripts/fetch-jquants-daily.js
+        
+    - name: Log results
+      if: always()
+      run: |
+        echo "Stock data fetch completed at $(date)"

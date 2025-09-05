@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Note } from '../types';
 
 interface NoteDrawerProps {
@@ -41,6 +41,18 @@ const NoteDrawer: React.FC<NoteDrawerProps> = ({ isOpen, ticker, onClose }) => {
     }
   }, [isOpen]);
 
+  const handleSaveNote = useCallback(async () => {
+    if (!newNoteText.trim() || !ticker) return;
+
+    try {
+      const savedNote = await window.electronAPI.insertNote(ticker, newNoteText.trim());
+      setNotes(prev => [savedNote, ...prev]);
+      setNewNoteText('');
+    } catch (error) {
+      console.error('Failed to save note:', error);
+    }
+  }, [newNoteText, ticker]);
+
   // Ctrl+Enter でメモを保存
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -52,19 +64,7 @@ const NoteDrawer: React.FC<NoteDrawerProps> = ({ isOpen, ticker, onClose }) => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, newNoteText, ticker]);
-
-  const handleSaveNote = async () => {
-    if (!newNoteText.trim() || !ticker) return;
-
-    try {
-      const savedNote = await window.electronAPI.insertNote(ticker, newNoteText.trim());
-      setNotes(prev => [savedNote, ...prev]);
-      setNewNoteText('');
-    } catch (error) {
-      console.error('Failed to save note:', error);
-    }
-  };
+  }, [isOpen, handleSaveNote]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   root: 'src/renderer',
   base: './',
+  envDir: '../../', // .envファイルの場所を指定
   build: {
     outDir: '../../dist/renderer',
     emptyOutDir: true

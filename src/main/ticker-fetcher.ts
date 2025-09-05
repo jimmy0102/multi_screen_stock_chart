@@ -1,5 +1,3 @@
-import { DatabaseManager } from './database';
-
 // 東証プライム銘柄データを取得
 export async function fetchTSEPrimeTickers(): Promise<Array<{symbol: string, name: string, market: string}>> {
   return new Promise((resolve, _reject) => {
@@ -275,34 +273,3 @@ export async function fetchTSEPrimeTickers(): Promise<Array<{symbol: string, nam
   });
 }
 
-// 外部APIから銘柄データを取得する場合の関数（将来実装用）
-export async function fetchFromJQuants(): Promise<Array<{symbol: string, name: string, market: string}>> {
-  // J-Quants API実装（有料プランが必要）
-  throw new Error('J-Quants API implementation required');
-}
-
-export async function fetchFromTSEWebsite(): Promise<Array<{symbol: string, name: string, market: string}>> {
-  // 東証公式サイトからのスクレイピング実装
-  throw new Error('TSE website scraping implementation required');
-}
-
-// メイン実行関数
-export async function updateTickerDatabase() {
-  const db = new DatabaseManager();
-  
-  try {
-    console.log('Fetching TSE Prime tickers...');
-    const tickers = await fetchTSEPrimeTickers();
-    
-    console.log(`Inserting ${tickers.length} tickers into database...`);
-    db.insertTickers(tickers);
-    
-    console.log('Ticker database updated successfully');
-    return tickers;
-  } catch (error) {
-    console.error('Failed to update ticker database:', error);
-    throw error;
-  } finally {
-    db.close();
-  }
-}

@@ -9,6 +9,8 @@ dotenv.config();
 class StockChartApp {
   private mainWindow: BrowserWindow | null = null;
   private db: DatabaseManager;
+  private fetchQueue: Set<string> = new Set();
+  private isProcessingQueue: boolean = false;
 
   constructor() {
     this.db = new DatabaseManager();
@@ -97,25 +99,19 @@ class StockChartApp {
     ipcMain.handle('get-stock-data', async (_, ticker: string, timeframe: string, limit?: number) => {
       // データの存在チェック
       const dataCount = this.db.getStockDataCount(ticker, timeframe);
-      let data = this.db.getStockData(ticker, timeframe, limit);
+      const data = this.db.getStockData(ticker, timeframe, limit);
       
-      // データが存在しない場合のみ新規取得（キャッシュクリア後の初回取得）
+      // データが存在しない場合のみ新規取得
       const shouldRefresh = dataCount === 0;
       
       if (shouldRefresh) {
-        console.log(`No data found for ${ticker} ${timeframe}. Fetching fresh data from J-Quants...`);
-        const jquantsClient = new JQuantsClient();
-        const success = await jquantsClient.fetchAndStoreStockData(ticker, this.db);
-        jquantsClient.close();
+        console.log(`No data found for ${ticker} ${timeframe}. Adding to fetch queue...`);
         
-        if (success) {
-          // 新しいデータを取得
-          data = this.db.getStockData(ticker, timeframe, limit);
-          console.log(`Freshly cached ${data.length} data points for ${ticker} ${timeframe}`);
-        } else {
-          console.warn(`Failed to fetch data for ${ticker} ${timeframe}`);
-          return [];
-        }
+        // すぐにはAPIを呼ばず、後で一括取得するためのキューに追加
+        this.addToFetchQueue(ticker);
+        
+        // 現時点では空配列を返すか、代替データを返す
+        return [];
       } else {
         console.log(`Using cached data for ${ticker} ${timeframe} (${data.length} points)`);
       }
@@ -179,6 +175,55 @@ class StockChartApp {
     ipcMain.handle('app-quit', async () => {
       app.quit();
     });
+  }
+
+  private addToFetchQueue(ticker: string) {
+    this.fetchQueue.add(ticker);
+    
+    // 少し遅延させてから処理開始（複数の銘柄が一度にリクエストされる場合をまとめるため）
+    setTimeout(() => {
+      this.processFetchQueue();
+    }, 2000);
+  }
+
+  private async processFetchQueue() {
+    if (this.isProcessingQueue || this.fetchQueue.size === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+    console.log(`Processing fetch queue: ${this.fetchQueue.size} tickers`);
+
+    const jquantsClient = new JQuantsClient();
+    const tickersToFetch = Array.from(this.fetchQueue);
+    this.fetchQueue.clear();
+
+    // 1つずつ順番に処理（レート制限を考慮）
+    for (const ticker of tickersToFetch) {
+      try {
+        console.log(`Fetching data for ${ticker}...`);
+        const success = await jquantsClient.fetchAndStoreStockData(ticker, this.db);
+        
+        if (success) {
+          // データが取得できたらフロントエンドに通知
+          this.mainWindow?.webContents.send('data-updated', ticker);
+        }
+        
+        // レート制限を避けるため、リクエスト間に2秒の間隔
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error(`Failed to fetch data for ${ticker}:`, error);
+      }
+    }
+
+    jquantsClient.close();
+    this.isProcessingQueue = false;
+    
+    // 処理中に新しいリクエストが追加された場合は再処理
+    if (this.fetchQueue.size > 0) {
+      setTimeout(() => this.processFetchQueue(), 1000);
+    }
   }
 
   private cleanup() {

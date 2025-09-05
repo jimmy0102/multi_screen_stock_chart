@@ -253,6 +253,32 @@ export class DatabaseManager {
     return result.count;
   }
 
+  // 特定の銘柄・時間枠のデータをクリア
+  clearStockData(ticker: string, timeframe: string): void {
+    this.db.prepare(`
+      DELETE FROM stock_data 
+      WHERE ticker = ? AND timeframe = ?
+    `).run(ticker, timeframe);
+  }
+
+  // 5桁コードのティッカーを削除（Twelve Data時代の古いデータ清掃用）
+  clearLegacyFiveDigitTickers(): void {
+    const deletedTickers = this.db.prepare(`
+      DELETE FROM tickers 
+      WHERE length(symbol) = 5 AND symbol LIKE '%0'
+    `).run();
+    console.log(`Cleared ${deletedTickers.changes} legacy 5-digit tickers`);
+  }
+
+  // 5桁コードの株価データを削除
+  clearLegacyFiveDigitStockData(): void {
+    const deletedData = this.db.prepare(`
+      DELETE FROM stock_data 
+      WHERE length(ticker) = 5 AND ticker LIKE '%0'
+    `).run();
+    console.log(`Cleared ${deletedData.changes} legacy 5-digit stock data records`);
+  }
+
   // Notes operations
   insertNote(ticker: string, text: string): Note {
     const stmt = this.db.prepare(`
@@ -307,6 +333,11 @@ export class DatabaseManager {
   }
 
   private async initializeSampleDataIfEmpty() {
+    // 古い5桁コードのデータを削除
+    console.log('Cleaning up legacy 5-digit ticker data...');
+    this.clearLegacyFiveDigitTickers();
+    this.clearLegacyFiveDigitStockData();
+    
     const tickerCount = this.db.prepare('SELECT COUNT(*) as count FROM tickers').get() as { count: number };
     
     if (tickerCount.count === 0) {

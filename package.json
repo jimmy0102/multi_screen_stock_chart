@@ -16,11 +16,9 @@
     "postinstall": "electron-builder install-app-deps",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "typecheck": "tsc --noEmit",
-    "init-sample-data": "npx ts-node --project tsconfig-node.json src/main/sample-data.ts",
-    "fetch-all-tickers": "npx ts-node --project tsconfig-node.json scripts/update-tickers.ts",
-    "import-xls-tickers": "node scripts/import-xls-tickers.js",
-    "generate-stock-data": "node scripts/generate-all-stock-data.js",
-    "import-csv-tickers": "npx ts-node --project tsconfig-node.json src/main/csv-importer.ts"
+    "fetch-all-tickers": "npx ts-node --project tsconfig-node.json src/main/ticker-fetcher.ts",
+    "import-data": "node scripts/import-jquants-data.js",
+    "fetch-daily": "node scripts/fetch-jquants-daily.js"
   },
   "keywords": [
     "electron",
@@ -54,6 +52,7 @@
     "webpack-cli": "^5.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
     "axios": "^1.11.0",
     "better-sqlite3": "^9.0.0",
     "dotenv": "^17.2.1",

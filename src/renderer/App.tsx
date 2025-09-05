@@ -3,7 +3,13 @@ import { TimeFrame, AppState } from './types';
 import ChartPane from './components/ChartPane';
 import TickerController from './components/TickerController';
 import NoteDrawer from './components/NoteDrawer';
+import LoginScreen from './components/LoginScreen';
+import PWAInstaller from './components/PWAInstaller';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { simpleAuthService } from '../lib/auth-simple';
+import { database } from '../lib/database';
+import { getTickersSimple, getFavoritesSimple } from '../lib/database-simple';
+import { testDirectConnection } from '../lib/supabase-direct-test';
 import './App.css';
 
 // 新しいチャートレイアウト設定
@@ -26,37 +32,86 @@ const App: React.FC = () => {
 
   const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [authState, setAuthState] = useState({
+    user: null as any,
+    loading: true,
+    error: null as string | null
+  });
 
-  // 初期データ読み込み
+  // 認証状態の管理
   useEffect(() => {
+    console.log('🔄 App: Initializing auth...');
+    
+    // 初期化を実行
+    simpleAuthService.initialize().then(() => {
+      console.log('🔐 Auth initialized');
+    });
+    
+    const unsubscribe = simpleAuthService.subscribe((state) => {
+      console.log('🔐 Auth state received:', { 
+        hasUser: !!state.user, 
+        loading: state.loading,
+        error: state.error 
+      });
+      setAuthState(state);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 初期データ読み込み（認証後）
+  useEffect(() => {
+    if (!authState.user || authState.loading) return;
+
     const initializeApp = async () => {
       try {
-        console.log('Initializing app...');
-        const tickers = await window.electronAPI.getAllTickers();
-        console.log('Received tickers:', tickers.length);
-        const favorites = await window.electronAPI.getFavorites();
-        console.log('Received favorites:', favorites.length);
+        console.log('[App] Initializing app...');
+        
+        // シンプルなデータ取得（タイムアウト時はフォールバックデータ使用）
+        const tickers = await getTickersSimple();
+        console.log('[App] Received tickers:', tickers.length);
+        
+        // ローカルストレージからお気に入りを読み込み
+        let savedFavorites: string[] = [];
+        try {
+          const stored = localStorage.getItem('favorites');
+          if (stored) {
+            savedFavorites = JSON.parse(stored);
+            console.log('[App] Loaded favorites from localStorage:', savedFavorites);
+          }
+        } catch (error) {
+          console.error('[App] Failed to load favorites from localStorage:', error);
+        }
+        
+        // Supabaseからも試行（タイムアウトしても問題なし）
+        const favorites = await getFavoritesSimple(authState.user?.id);
+        console.log('[App] Received favorites from Supabase:', favorites.length);
+        
+        // ローカルとSupabaseのお気に入りをマージ
+        const allFavorites = [...new Set([...savedFavorites, ...favorites.map(f => f.ticker)])];
         
         if (tickers.length > 0) {
+          console.log('[App] Setting app state with tickers...');
           setAppState(prev => ({
             ...prev,
             tickers,
-            favorites: favorites.map(f => f.ticker),
+            favorites: allFavorites,
             currentTicker: tickers[0].symbol
           }));
-          console.log('App state updated with', tickers.length, 'tickers');
+          console.log('[App] App state updated with', tickers.length, 'tickers');
         } else {
-          console.warn('No tickers received from database');
+          console.warn('[App] No tickers received from database');
         }
       } catch (error) {
-        console.error('Failed to initialize app:', error);
+        console.error('[App] Failed to initialize app:', error);
       } finally {
+        console.log('[App] Setting loading to false');
         setIsLoading(false);
       }
     };
 
     initializeApp();
-  }, []);
+  }, [authState.user, authState.loading]);
 
   // 銘柄切り替え関数
   const navigateToTicker = (direction: 'prev' | 'next', step: number = 1) => {
@@ -83,25 +138,35 @@ const App: React.FC = () => {
   };
 
   // お気に入りトグル
-  const toggleFavorite = async () => {
+  const toggleFavorite = () => {
     const isFav = appState.favorites.includes(appState.currentTicker);
     
+    console.log('[App] Toggling favorite for:', appState.currentTicker, 'Current state:', isFav);
+    
+    if (isFav) {
+      // お気に入りから削除
+      setAppState(prev => ({
+        ...prev,
+        favorites: prev.favorites.filter(f => f !== prev.currentTicker)
+      }));
+      console.log('[App] Removed from favorites:', appState.currentTicker);
+    } else {
+      // お気に入りに追加
+      setAppState(prev => ({
+        ...prev,
+        favorites: [...prev.favorites, prev.currentTicker]
+      }));
+      console.log('[App] Added to favorites:', appState.currentTicker);
+    }
+    
+    // ローカルストレージに保存（永続化）
     try {
-      if (isFav) {
-        await window.electronAPI.removeFromFavorites(appState.currentTicker);
-        setAppState(prev => ({
-          ...prev,
-          favorites: prev.favorites.filter(f => f !== prev.currentTicker)
-        }));
-      } else {
-        await window.electronAPI.addToFavorites(appState.currentTicker);
-        setAppState(prev => ({
-          ...prev,
-          favorites: [...prev.favorites, prev.currentTicker]
-        }));
-      }
+      const updatedFavorites = isFav 
+        ? appState.favorites.filter(f => f !== appState.currentTicker)
+        : [...appState.favorites, appState.currentTicker];
+      localStorage.setItem('favorites', JSON.stringify(updatedFavorites));
     } catch (error) {
-      console.error('Failed to toggle favorite:', error);
+      console.error('[App] Failed to save favorites to localStorage:', error);
     }
   };
 
@@ -120,8 +185,9 @@ const App: React.FC = () => {
       ? appState.tickers.filter(t => appState.favorites.includes(t.symbol))
       : appState.tickers;
 
-    // 証券コードまたは銘柄名で検索
+    // 証券コードまたは銘柄名で検索（4桁コードのみなので変換不要）
     const foundIndex = displayTickers.findIndex(ticker => 
+      ticker.symbol === query ||
       ticker.symbol.includes(query.toUpperCase()) || 
       ticker.name.includes(query)
     );
@@ -151,6 +217,27 @@ const App: React.FC = () => {
     'Escape': () => setIsNoteDrawerOpen(false)
   });
 
+  // 認証チェック
+  if (authState.loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-content">
+          <div className="loading-spinner"></div>
+          <p>認証状態を確認中...</p>
+          {authState.error && (
+            <p style={{color: 'red', marginTop: '10px'}}>
+              {authState.error}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!authState.user) {
+    return <LoginScreen />;
+  }
+
   if (isLoading) {
     return (
       <div className="loading-screen">
@@ -178,6 +265,7 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
+      <PWAInstaller />
       <TickerController
         currentTicker={appState.currentTicker}
         currentTickerName={currentTickerData?.name || ''}

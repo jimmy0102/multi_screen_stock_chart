@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
 import { TimeFrame, StockData, ChartOptions } from '../types';
+import { generateSamplePriceData } from '../../lib/fallback-data';
 
 interface ChartPaneProps {
   ticker: string;
@@ -99,7 +100,12 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
         // 初回は全データ取得（キャッシュ）、2回目以降は直近500件に制限
         const isFirstLoad = !seriesRef.current?.data().length;
         const limit = isFirstLoad ? undefined : 500;
-        const stockData = await window.electronAPI.getStockData(ticker, timeFrame, limit);
+        
+        // Supabase接続不可のため、フォールバックデータを使用
+        console.log('[ChartPane] Generating sample data for:', ticker, timeFrame);
+        // タイムフレームに応じた期間を設定
+        const periods = timeFrame === '1M' ? 36 : timeFrame === '1W' ? 52 : 100;
+        const stockData = generateSamplePriceData(ticker, timeFrame, periods);
         
         if (stockData.length === 0) {
           setError(`${timeFrame} データがありません`);
@@ -109,9 +115,9 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
 
         // データをlightweight-charts形式に変換
         const chartData: CandlestickData[] = stockData
-          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-          .map((data: StockData) => ({
-            time: Math.floor(new Date(data.timestamp).getTime() / 1000) as any,
+          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          .map((data: any) => ({
+            time: Math.floor(new Date(data.date).getTime() / 1000) as any,
             open: data.open,
             high: data.high,
             low: data.low,

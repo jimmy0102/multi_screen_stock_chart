@@ -1,16 +1,17 @@
 export interface Ticker {
-  id: number;
+  id: string;
   symbol: string;
   name: string;
   market: string;
+  sector?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface Note {
-  id: number;
+  id: string;
+  user_id: string;
   ticker: string;
-  timestamp: string;
   text: string;
   created_at: string;
   updated_at: string;
