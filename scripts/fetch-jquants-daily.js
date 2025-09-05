@@ -3,7 +3,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const axios = require('axios')
 
-const SUPABASE_URL = process.env.SUPABASE_URL
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
 const JQUANTS_EMAIL = process.env.JQUANTS_EMAIL
 const JQUANTS_PASSWORD = process.env.JQUANTS_PASSWORD
@@ -56,13 +56,15 @@ async function getAccessToken() {
   
   try {
     console.log('🔄 Getting access token with refresh token...')
-    const response = await axios.post(`${JQUANTS_BASE_URL}/token/auth_refresh`, {
-      refreshtoken: refreshToken
-    })
+    
+    console.log('📤 Refresh token length:', refreshToken.length)
+    console.log('📤 Refresh token starts with:', refreshToken.substring(0, 20) + '...')
+    
+    const response = await axios.post(`${JQUANTS_BASE_URL}/token/auth_refresh?refreshtoken=${encodeURIComponent(refreshToken)}`)
     
     console.log('📋 Access token response:', JSON.stringify(response.data, null, 2))
     
-    accessToken = response.data.accessToken || response.data.access_token || response.data.accesstoken
+    accessToken = response.data.idToken
     
     if (!accessToken) {
       console.error('❌ No access token found in response:', response.data)
