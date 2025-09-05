@@ -29,8 +29,17 @@ async function login() {
       password: JQUANTS_PASSWORD
     })
     
-    refreshToken = response.data.refreshToken
-    console.log('✅ J-Quants login successful')
+    console.log('📋 Login response:', JSON.stringify(response.data, null, 2))
+    
+    // レスポンスからrefreshTokenを取得（形式が変わっている可能性）
+    refreshToken = response.data.refreshToken || response.data.refresh_token || response.data.refreshtoken
+    
+    if (!refreshToken) {
+      console.error('❌ No refresh token found in response:', response.data)
+      return false
+    }
+    
+    console.log('✅ J-Quants login successful, refresh token obtained')
     return true
   } catch (error) {
     console.error('❌ J-Quants login failed:', error.response?.data || error.message)
@@ -40,15 +49,27 @@ async function login() {
 
 // アクセストークン取得
 async function getAccessToken() {
-  if (!refreshToken) return false
+  if (!refreshToken) {
+    console.error('❌ No refresh token available')
+    return false
+  }
   
   try {
+    console.log('🔄 Getting access token with refresh token...')
     const response = await axios.post(`${JQUANTS_BASE_URL}/token/auth_refresh`, {
       refreshtoken: refreshToken
     })
     
-    accessToken = response.data.accessToken
-    console.log('✅ Access token obtained')
+    console.log('📋 Access token response:', JSON.stringify(response.data, null, 2))
+    
+    accessToken = response.data.accessToken || response.data.access_token || response.data.accesstoken
+    
+    if (!accessToken) {
+      console.error('❌ No access token found in response:', response.data)
+      return false
+    }
+    
+    console.log('✅ Access token obtained successfully')
     return true
   } catch (error) {
     console.error('❌ Failed to get access token:', error.response?.data || error.message)
