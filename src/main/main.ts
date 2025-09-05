@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { DatabaseManager } from './database';
-import { TwelveDataClient } from './twelve-data-client';
 import { JQuantsClient } from './jquants-client';
 import * as dotenv from 'dotenv';
 
@@ -104,21 +103,21 @@ class StockChartApp {
       const shouldRefresh = dataCount === 0;
       
       if (shouldRefresh) {
-        console.log(`No data found for ${ticker} ${timeframe}. Fetching fresh JPY data...`);
-        const twelveDataClient = new TwelveDataClient();
-        const success = await twelveDataClient.fetchAndStoreStockData(ticker);
-        twelveDataClient.close();
+        console.log(`No data found for ${ticker} ${timeframe}. Fetching fresh data from J-Quants...`);
+        const jquantsClient = new JQuantsClient();
+        const success = await jquantsClient.fetchAndStoreStockData(ticker, this.db);
+        jquantsClient.close();
         
         if (success) {
-          // 新しい円建てデータを取得
+          // 新しいデータを取得
           data = this.db.getStockData(ticker, timeframe, limit);
-          console.log(`Freshly cached ${data.length} JPY data points for ${ticker} ${timeframe}`);
+          console.log(`Freshly cached ${data.length} data points for ${ticker} ${timeframe}`);
         } else {
           console.warn(`Failed to fetch data for ${ticker} ${timeframe}`);
           return [];
         }
       } else {
-        console.log(`Using cached JPY data for ${ticker} ${timeframe} (${data.length} points)`);
+        console.log(`Using cached data for ${ticker} ${timeframe} (${data.length} points)`);
       }
       
       return data || [];
@@ -136,9 +135,9 @@ class StockChartApp {
     });
     
     ipcMain.handle('update-stock-data', async (_, ticker: string) => {
-      const twelveDataClient = new TwelveDataClient();
-      const success = await twelveDataClient.fetchAndStoreStockData(ticker);
-      twelveDataClient.close();
+      const jquantsClient = new JQuantsClient();
+      const success = await jquantsClient.fetchAndStoreStockData(ticker, this.db);
+      jquantsClient.close();
       return success;
     });
 

@@ -6,7 +6,13 @@ import NoteDrawer from './components/NoteDrawer';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import './App.css';
 
-const timeFrames: TimeFrame[] = ['60m', '1D', '1W', '1M'];
+// 新しいチャートレイアウト設定
+const chartLayouts = [
+  { position: 'top-left', timeFrame: '1D' as TimeFrame, title: '日足' },
+  { position: 'top-right', timeFrame: null, title: '' }, // 右上は空
+  { position: 'bottom-left', timeFrame: '1W' as TimeFrame, title: '週足' },
+  { position: 'bottom-right', timeFrame: '1M' as TimeFrame, title: '月足' }
+];
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>({
@@ -189,14 +195,22 @@ const App: React.FC = () => {
       />
 
       <div className="chart-grid">
-        {timeFrames.map((timeFrame) => (
-          <ChartPane
-            key={timeFrame}
-            ticker={appState.currentTicker}
-            timeFrame={timeFrame}
-            title={`${timeFrame} Chart`}
-            delay={0} // 並列読み込み
-          />
+        {chartLayouts.map((layout) => (
+          layout.timeFrame ? (
+            <ChartPane
+              key={layout.position}
+              ticker={appState.currentTicker}
+              timeFrame={layout.timeFrame}
+              title={layout.title}
+              delay={0} // 並列読み込み
+            />
+          ) : (
+            <div key={layout.position} className="chart-pane empty-pane">
+              <div className="empty-pane-content">
+                {/* 右上は空のペイン */}
+              </div>
+            </div>
+          )
         ))}
       </div>
 

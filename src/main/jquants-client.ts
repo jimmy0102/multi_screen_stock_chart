@@ -22,6 +22,23 @@ interface JQuantsTokenResponse {
   idToken: string;
 }
 
+interface JQuantsPriceData {
+  Date: string;
+  Code: string;
+  Open: number;
+  High: number;
+  Low: number;
+  Close: number;
+  Volume: number;
+  TurnoverValue: number;
+  AdjustmentFactor: number;
+  AdjustmentOpen: number;
+  AdjustmentHigh: number;
+  AdjustmentLow: number;
+  AdjustmentClose: number;
+  AdjustmentVolume: number;
+}
+
 export class JQuantsClient {
   private baseUrl = 'https://api.jquants.com/v1';
   private idToken: string | null = null;
@@ -181,5 +198,174 @@ export class JQuantsClient {
       console.error('Failed to load predefined tickers:', error);
       return false;
     }
+  }
+
+  async fetchDailyPrices(ticker: string, fromDate?: string, toDate?: string): Promise<JQuantsPriceData[]> {
+    try {
+      if (!this.idToken) {
+        const authenticated = await this.authenticate();
+        if (!authenticated) {
+          console.error('Failed to authenticate with J-Quants API');
+          return [];
+        }
+      }
+
+      const params: any = { code: ticker };
+      if (fromDate) params.from = fromDate;
+      if (toDate) params.to = toDate;
+
+      const response = await axios.get(`${this.baseUrl}/prices/daily_quotes`, {
+        headers: {
+          'Authorization': `Bearer ${this.idToken}`
+        },
+        params
+      });
+
+      if (response.data && response.data.daily_quotes) {
+        return response.data.daily_quotes;
+      }
+
+      return [];
+    } catch (error: any) {
+      console.error(`Failed to fetch daily prices for ${ticker}:`, error.response?.data || error.message);
+      return [];
+    }
+  }
+
+  private convertToWeeklyData(dailyData: JQuantsPriceData[]): any[] {
+    const weeklyData: any[] = [];
+    if (dailyData.length === 0) return weeklyData;
+
+    // 日付でソート
+    const sortedData = [...dailyData].sort((a, b) => a.Date.localeCompare(b.Date));
+    
+    let weekStart = 0;
+    for (let i = 0; i < sortedData.length; i++) {
+      const currentDate = new Date(sortedData[i].Date);
+      const nextDate = i < sortedData.length - 1 ? new Date(sortedData[i + 1].Date) : null;
+      
+      // 週の最後か最後のデータの場合
+      if (!nextDate || currentDate.getDay() === 5 || nextDate.getDay() < currentDate.getDay()) {
+        const weekData = sortedData.slice(weekStart, i + 1);
+        weeklyData.push({
+          Date: weekData[weekData.length - 1].Date,
+          Code: weekData[0].Code,
+          Open: weekData[0].AdjustmentOpen,
+          High: Math.max(...weekData.map(d => d.AdjustmentHigh)),
+          Low: Math.min(...weekData.map(d => d.AdjustmentLow)),
+          Close: weekData[weekData.length - 1].AdjustmentClose,
+          Volume: weekData.reduce((sum, d) => sum + d.AdjustmentVolume, 0)
+        });
+        weekStart = i + 1;
+      }
+    }
+    
+    return weeklyData;
+  }
+
+  private convertToMonthlyData(dailyData: JQuantsPriceData[]): any[] {
+    const monthlyData: any[] = [];
+    if (dailyData.length === 0) return monthlyData;
+
+    // 日付でソート
+    const sortedData = [...dailyData].sort((a, b) => a.Date.localeCompare(b.Date));
+    
+    let monthStart = 0;
+    for (let i = 0; i < sortedData.length; i++) {
+      const currentDate = new Date(sortedData[i].Date);
+      const nextDate = i < sortedData.length - 1 ? new Date(sortedData[i + 1].Date) : null;
+      
+      // 月の最後か最後のデータの場合
+      if (!nextDate || nextDate.getMonth() !== currentDate.getMonth() || nextDate.getFullYear() !== currentDate.getFullYear()) {
+        const monthData = sortedData.slice(monthStart, i + 1);
+        monthlyData.push({
+          Date: monthData[monthData.length - 1].Date,
+          Code: monthData[0].Code,
+          Open: monthData[0].AdjustmentOpen,
+          High: Math.max(...monthData.map(d => d.AdjustmentHigh)),
+          Low: Math.min(...monthData.map(d => d.AdjustmentLow)),
+          Close: monthData[monthData.length - 1].AdjustmentClose,
+          Volume: monthData.reduce((sum, d) => sum + d.AdjustmentVolume, 0)
+        });
+        monthStart = i + 1;
+      }
+    }
+    
+    return monthlyData;
+  }
+
+  async fetchAndStoreStockData(ticker: string, db: DatabaseManager): Promise<boolean> {
+    try {
+      console.log(`Fetching stock data for ${ticker} from J-Quants...`);
+      
+      // 過去3年分のデータを取得
+      const toDate = new Date();
+      const fromDate = new Date();
+      fromDate.setFullYear(toDate.getFullYear() - 3);
+      
+      const dailyData = await this.fetchDailyPrices(
+        ticker,
+        fromDate.toISOString().split('T')[0],
+        toDate.toISOString().split('T')[0]
+      );
+
+      if (dailyData.length === 0) {
+        console.error(`No data found for ${ticker}`);
+        return false;
+      }
+
+      // 日足データを保存
+      const dailyStockData = dailyData.map(candle => ({
+        ticker: ticker,
+        timestamp: candle.Date,
+        timeframe: '1D' as '60m' | '1D' | '1W' | '1M',
+        open: candle.AdjustmentOpen,
+        high: candle.AdjustmentHigh,
+        low: candle.AdjustmentLow,
+        close: candle.AdjustmentClose,
+        volume: candle.AdjustmentVolume
+      }));
+      db.insertStockData(dailyStockData);
+      console.log(`Stored ${dailyStockData.length} daily candles for ${ticker}`);
+
+      // 週足データを生成して保存
+      const weeklyData = this.convertToWeeklyData(dailyData);
+      const weeklyStockData = weeklyData.map(candle => ({
+        ticker: ticker,
+        timestamp: candle.Date,
+        timeframe: '1W' as '60m' | '1D' | '1W' | '1M',
+        open: candle.Open,
+        high: candle.High,
+        low: candle.Low,
+        close: candle.Close,
+        volume: candle.Volume
+      }));
+      db.insertStockData(weeklyStockData);
+      console.log(`Stored ${weeklyStockData.length} weekly candles for ${ticker}`);
+
+      // 月足データを生成して保存
+      const monthlyData = this.convertToMonthlyData(dailyData);
+      const monthlyStockData = monthlyData.map(candle => ({
+        ticker: ticker,
+        timestamp: candle.Date,
+        timeframe: '1M' as '60m' | '1D' | '1W' | '1M',
+        open: candle.Open,
+        high: candle.High,
+        low: candle.Low,
+        close: candle.Close,
+        volume: candle.Volume
+      }));
+      db.insertStockData(monthlyStockData);
+      console.log(`Stored ${monthlyStockData.length} monthly candles for ${ticker}`);
+
+      return true;
+    } catch (error) {
+      console.error(`Failed to fetch and store data for ${ticker}:`, error);
+      return false;
+    }
+  }
+
+  close() {
+    // クリーンアップが必要な場合はここで実行
   }
 }

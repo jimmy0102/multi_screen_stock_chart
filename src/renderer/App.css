@@ -356,6 +356,20 @@
   font-weight: 600;
 }
 
+/* Empty Pane */
+.empty-pane {
+  background-color: #f8f9fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-pane-content {
+  color: #adb5bd;
+  font-size: 14px;
+  text-align: center;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .chart-grid {
