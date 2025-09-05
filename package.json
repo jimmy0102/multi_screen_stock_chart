@@ -1,0 +1,95 @@
+{
+  "name": "multi-screen-stock-chart",
+  "version": "1.0.0",
+  "description": "Multi-screen stock chart application with 4-pane synchronized display",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "webpack --config webpack.main.config.js --mode development --watch",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "webpack --config webpack.main.config.js --mode production",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "typecheck": "tsc --noEmit",
+    "init-sample-data": "npx ts-node --project tsconfig-node.json src/main/sample-data.ts",
+    "fetch-all-tickers": "npx ts-node --project tsconfig-node.json scripts/update-tickers.ts",
+    "import-xls-tickers": "node scripts/import-xls-tickers.js",
+    "generate-stock-data": "node scripts/generate-all-stock-data.js",
+    "import-csv-tickers": "npx ts-node --project tsconfig-node.json src/main/csv-importer.ts"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "stock",
+    "chart",
+    "trading",
+    "lightweight-charts"
+  ],
+  "author": "Jimmy",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^8.0.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0",
+    "eslint": "^8.0.0",
+    "eslint-plugin-react": "^7.0.0",
+    "eslint-plugin-react-hooks": "^4.0.0",
+    "ts-loader": "^9.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0",
+    "webpack": "^5.0.0",
+    "webpack-cli": "^5.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "better-sqlite3": "^9.0.0",
+    "dotenv": "^17.2.1",
+    "lightweight-charts": "^4.1.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.jimmy.multi-screen-stock-chart",
+    "productName": "Multi-Screen Stock Chart",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "data/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "data",
+        "to": "data",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
