@@ -16,7 +16,7 @@ class PWAService {
 
   private initializePWA() {
     // Register service worker
-    if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    if ('serviceWorker' in navigator && (import.meta as any).env.PROD) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
           .then((registration) => {

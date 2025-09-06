@@ -16,7 +16,6 @@
     "postinstall": "electron-builder install-app-deps",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "typecheck": "tsc --noEmit",
-    "fetch-all-tickers": "npx ts-node --project tsconfig-node.json src/main/ticker-fetcher.ts",
     "import-data": "node scripts/import-jquants-data.js",
     "fetch-daily": "node scripts/fetch-jquants-daily.js"
   },

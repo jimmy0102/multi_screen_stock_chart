@@ -133,25 +133,36 @@ class JQuantsAPI {
   }
 
   async getPrimeStocks() {
-    if (!this.accessToken) return []
-    
     try {
-      console.log('📋 Fetching latest TSE Prime stock list...')
+      console.log('📋 Fetching approved ticker list from ticker_master...')
       
-      const response = await axios.get(`${JQUANTS_BASE_URL}/listed/info`, {
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`
-        }
-      })
+      // ticker_masterから4桁コードを取得し、5桁（末尾0付き）に変換
+      const supabase = new SupabaseHelper()
+      const { data, error } = await supabase.client
+        .from('ticker_master')
+        .select('symbol')
+        .order('symbol')
       
-      const primeStocks = response.data.info.filter(stock => 
-        stock.MarketCode === '0111' || stock.MarketCodeName === 'プライム'
-      )
+      if (error) {
+        console.error('❌ Failed to get ticker_master data:', error)
+        return []
+      }
       
-      console.log(`📊 Found ${primeStocks.length} TSE Prime stocks`)
-      return primeStocks.map(stock => stock.Code)
+      if (!data || data.length === 0) {
+        console.error('❌ No tickers found in ticker_master')
+        return []
+      }
+      
+      // 4桁コードを5桁（末尾0付き）に変換
+      const fiveDigitTickers = data.map(row => row.symbol + '0')
+      
+      console.log(`📊 Found ${data.length} approved tickers in ticker_master`)
+      console.log(`🔢 Converted to ${fiveDigitTickers.length} five-digit format for J-Quants API`)
+      console.log(`📋 Sample tickers: ${fiveDigitTickers.slice(0, 5).join(', ')}...`)
+      
+      return fiveDigitTickers
     } catch (error) {
-      console.error('❌ Failed to get stock list:', error.response?.data || error.message)
+      console.error('❌ Failed to get ticker list from ticker_master:', error)
       return []
     }
   }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { JQuantsAPI, convertToSupabaseFormat, SupabaseHelper, dateUtils } = require('./utils')
+const { updateTickerMaster } = require('./update-ticker-master')
 
 async function main() {
   console.log('🚀 Starting J-Quants daily data fetch...')
@@ -19,14 +20,24 @@ async function main() {
     process.exit(1)
   }
   
-  // 3. 最新の東証プライム銘柄リスト取得
+  // 3. ticker_master更新（前段処理）
+  console.log('\n🏢 Updating ticker_master before fetching stock data...')
+  try {
+    const updateResult = await updateTickerMaster()
+    console.log(`✅ ticker_master updated: +${updateResult.added}, -${updateResult.removed}, total: ${updateResult.total}`)
+  } catch (error) {
+    console.error('❌ ticker_master update failed:', error.message)
+    console.log('⚠️  Continuing with existing ticker_master data...')
+  }
+  
+  // 4. 最新の東証プライム銘柄リスト取得（ticker_masterから）
   const tickers = await jquants.getPrimeStocks()
   if (tickers.length === 0) {
     console.error('❌ No tickers found')
     process.exit(1)
   }
   
-  // 4. 各銘柄の前営業日データ取得
+  // 5. 各銘柄の前営業日データ取得
   const targetDate = dateUtils.getYesterday()
   const allStockData = []
   
@@ -54,14 +65,14 @@ async function main() {
     }
   }
   
-  // 5. Supabaseに保存
+  // 6. Supabaseに保存
   if (allStockData.length > 0) {
     const success = await supabase.saveStockData(allStockData)
     if (success) {
       console.log('🎉 Data fetch completed successfully!')
       console.log(`📊 Total records processed: ${allStockData.length}`)
       
-      // 6. 週足・月足データの更新
+      // 7. 週足・月足データの更新
       console.log('\n🔄 Updating weekly and monthly timeframes...')
       try {
         const { spawn } = require('child_process')

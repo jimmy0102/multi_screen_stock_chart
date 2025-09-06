@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { TimeFrame, AppState } from './types';
 import ChartPane from './components/ChartPane';
 import TickerController from './components/TickerController';
@@ -8,8 +8,7 @@ import PWAInstaller from './components/PWAInstaller';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { simpleAuthService } from '../lib/auth-simple';
 import { database } from '../lib/database';
-import { getTickersSimple, getFavoritesSimple } from '../lib/database-simple';
-import { testDirectConnection } from '../lib/supabase-direct-test';
+import { getFavoritesSimple } from '../lib/direct-database';
 import './App.css';
 
 // 新しいチャートレイアウト設定
@@ -32,6 +31,7 @@ const App: React.FC = () => {
 
   const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
   const [authState, setAuthState] = useState({
     user: null as any,
     loading: true,
@@ -59,59 +59,74 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // 共通の初期化処理
+  const loadAppData = useCallback(async (isRetry = false) => {
+    try {
+      console.log(`[App] ${isRetry ? 'Retrying' : 'Initializing'} app...`);
+      setLoadingError(null);
+      
+      // データベースから直接全銘柄を取得
+      console.log('[App] Fetching tickers from database...');
+      const tickers = await database.getAllTickers();
+      console.log('[App] Received tickers:', tickers.length);
+      
+      if (isRetry && tickers.length === 0) {
+        throw new Error('データベースから銘柄データを取得できませんでした');
+      }
+      
+      // ローカルストレージからお気に入りを読み込み
+      let savedFavorites: string[] = [];
+      try {
+        const stored = localStorage.getItem('favorites');
+        if (stored) {
+          savedFavorites = JSON.parse(stored);
+          console.log('[App] Loaded favorites from localStorage:', savedFavorites);
+        }
+      } catch (error) {
+        console.error('[App] Failed to load favorites from localStorage:', error);
+      }
+      
+      // Supabaseからも試行（タイムアウトしても問題なし）
+      const favorites = await getFavoritesSimple(authState.user?.id);
+      console.log('[App] Received favorites from Supabase:', favorites.length);
+      
+      // ローカルとSupabaseのお気に入りをマージ
+      const allFavorites = [...new Set([...savedFavorites, ...favorites.map(f => f.ticker)])];
+      
+      if (tickers.length > 0) {
+        console.log('[App] Setting app state with tickers...');
+        setAppState(prev => ({
+          ...prev,
+          tickers,
+          favorites: allFavorites,
+          currentTicker: tickers[0].symbol
+        }));
+        console.log('[App] App state updated with', tickers.length, 'tickers');
+      } else if (!isRetry) {
+        console.warn('[App] No tickers received from database');
+      }
+    } catch (error) {
+      console.error(`[App] ${isRetry ? 'Retry' : 'Initialization'} failed:`, error);
+      setLoadingError(error instanceof Error ? error.message : 'アプリの初期化に失敗しました');
+    } finally {
+      console.log('[App] Setting loading to false');
+      setIsLoading(false);
+    }
+  }, [authState.user]);
+
   // 初期データ読み込み（認証後）
   useEffect(() => {
     if (!authState.user || authState.loading) return;
+    loadAppData();
+  }, [authState.user, authState.loading, loadAppData]);
 
-    const initializeApp = async () => {
-      try {
-        console.log('[App] Initializing app...');
-        
-        // シンプルなデータ取得（タイムアウト時はフォールバックデータ使用）
-        const tickers = await getTickersSimple();
-        console.log('[App] Received tickers:', tickers.length);
-        
-        // ローカルストレージからお気に入りを読み込み
-        let savedFavorites: string[] = [];
-        try {
-          const stored = localStorage.getItem('favorites');
-          if (stored) {
-            savedFavorites = JSON.parse(stored);
-            console.log('[App] Loaded favorites from localStorage:', savedFavorites);
-          }
-        } catch (error) {
-          console.error('[App] Failed to load favorites from localStorage:', error);
-        }
-        
-        // Supabaseからも試行（タイムアウトしても問題なし）
-        const favorites = await getFavoritesSimple(authState.user?.id);
-        console.log('[App] Received favorites from Supabase:', favorites.length);
-        
-        // ローカルとSupabaseのお気に入りをマージ
-        const allFavorites = [...new Set([...savedFavorites, ...favorites.map(f => f.ticker)])];
-        
-        if (tickers.length > 0) {
-          console.log('[App] Setting app state with tickers...');
-          setAppState(prev => ({
-            ...prev,
-            tickers,
-            favorites: allFavorites,
-            currentTicker: tickers[0].symbol
-          }));
-          console.log('[App] App state updated with', tickers.length, 'tickers');
-        } else {
-          console.warn('[App] No tickers received from database');
-        }
-      } catch (error) {
-        console.error('[App] Failed to initialize app:', error);
-      } finally {
-        console.log('[App] Setting loading to false');
-        setIsLoading(false);
-      }
-    };
-
-    initializeApp();
-  }, [authState.user, authState.loading]);
+  // リトライ関数
+  const handleRetry = () => {
+    console.log('[App] Manual retry requested');
+    setIsLoading(true);
+    setLoadingError(null);
+    loadAppData(true);
+  };
 
   // 銘柄切り替え関数
   const navigateToTicker = (direction: 'prev' | 'next', step: number = 1) => {
@@ -249,12 +264,42 @@ const App: React.FC = () => {
     );
   }
 
+  if (loadingError) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-content">
+          <div className="error-icon">⚠️</div>
+          <h3>データの読み込みに失敗しました</h3>
+          <p className="error-message">{loadingError}</p>
+          <button 
+            className="retry-button" 
+            onClick={handleRetry}
+            disabled={isLoading}
+          >
+            {isLoading ? '読み込み中...' : '再読み込み'}
+          </button>
+          <p className="error-help">
+            問題が解決しない場合は、ページを再読み込みしてください。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (appState.tickers.length === 0) {
     return (
       <div className="loading-screen">
         <div className="loading-content">
-          <p>銘柄データがありません</p>
-          <p>データをインポートしてください</p>
+          <div className="error-icon">📊</div>
+          <h3>銘柄データがありません</h3>
+          <p>データベースから銘柄情報を取得できませんでした。</p>
+          <button 
+            className="retry-button" 
+            onClick={handleRetry}
+            disabled={isLoading}
+          >
+            {isLoading ? '読み込み中...' : '再読み込み'}
+          </button>
         </div>
       </div>
     );

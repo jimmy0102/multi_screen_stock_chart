@@ -9,8 +9,8 @@ if (!rootElement) {
 } else {
   console.log('✅ Root element found, creating React app...');
   console.log('✅ Environment variables loaded:', {
-    supabaseUrl: !!import.meta.env.VITE_SUPABASE_URL,
-    supabaseKey: !!import.meta.env.VITE_SUPABASE_ANON_KEY
+    supabaseUrl: !!(import.meta as any).env.VITE_SUPABASE_URL,
+    supabaseKey: !!(import.meta as any).env.VITE_SUPABASE_ANON_KEY
   });
   
   const root = ReactDOM.createRoot(rootElement);

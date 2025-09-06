@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
-import { TimeFrame, StockData, ChartOptions } from '../types';
-import { generateSamplePriceData } from '../../lib/fallback-data';
+import { TimeFrame, ChartOptions } from '../types';
 
 interface ChartPaneProps {
   ticker: string;
@@ -97,15 +96,20 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
       }
 
       try {
-        // 初回は全データ取得（キャッシュ）、2回目以降は直近500件に制限
-        const isFirstLoad = !seriesRef.current?.data().length;
-        const limit = isFirstLoad ? undefined : 500;
+        // より多くのデータを表示するために制限を緩和
+        const limit = timeFrame === '1D' ? 1000 : timeFrame === '1W' ? 500 : 100;
         
-        // Supabase接続不可のため、フォールバックデータを使用
-        console.log('[ChartPane] Generating sample data for:', ticker, timeFrame);
-        // タイムフレームに応じた期間を設定
-        const periods = timeFrame === '1M' ? 36 : timeFrame === '1W' ? 52 : 100;
-        const stockData = generateSamplePriceData(ticker, timeFrame, periods);
+        // Supabaseから実際のデータを取得
+        console.log('[ChartPane] Fetching real data from Supabase for:', ticker, timeFrame);
+        
+        // database からデータを取得
+        const { database } = await import('../../lib/database');
+        const stockData = await database.getStockData(ticker, timeFrame, limit);
+        
+        // データが取得できない場合はエラー表示
+        if (stockData.length === 0) {
+          console.warn('[ChartPane] No real data available for', ticker, timeFrame);
+        }
         
         if (stockData.length === 0) {
           setError(`${timeFrame} データがありません`);
@@ -123,50 +127,40 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
             low: data.low,
             close: data.close
           }))
-          .filter((data, index, array) => {
-            // 重複するタイムスタンプを除去
-            return index === 0 || data.time !== array[index - 1].time;
-          });
+          .filter((data, index, array) => 
+            index === 0 || data.time !== array[index - 1].time
+          );
 
         console.log(`Setting ${chartData.length} data points for ${ticker} ${timeFrame}`);
         seriesRef.current?.setData(chartData);
         
         // 統一された表示範囲を設定（直近100本のロウソク足を表示）
         if (chartRef.current && chartData.length > 0) {
-          const visibleBars = 100; // 全時間足で統一した表示本数
+          const visibleBars = 100;
+          const lastIndex = chartData.length - 1;
           
           if (chartData.length > visibleBars) {
-            // 直近100本分のデータ範囲を計算
-            const lastIndex = chartData.length - 1;
             const firstVisibleIndex = Math.max(0, lastIndex - visibleBars + 1);
-            
-            const from = chartData[firstVisibleIndex].time;
-            const to = chartData[lastIndex].time;
-            
-            // 表示範囲を設定
             chartRef.current.timeScale().setVisibleRange({
-              from: from as any,
-              to: to as any
+              from: chartData[firstVisibleIndex].time as any,
+              to: chartData[lastIndex].time as any
             });
+            
+            // 右側に少し余白を追加
+            setTimeout(() => {
+              if (chartRef.current) {
+                const paddedFirstIndex = Math.max(0, lastIndex - visibleBars - 5);
+                const paddedTo = chartData[Math.min(lastIndex, lastIndex + 5)]?.time || chartData[lastIndex].time;
+                
+                chartRef.current.timeScale().setVisibleRange({
+                  from: chartData[paddedFirstIndex].time as any,
+                  to: paddedTo as any
+                });
+              }
+            }, 100);
           } else {
-            // データが少ない場合は全体を表示
             chartRef.current.timeScale().fitContent();
           }
-          
-          // 少し右側にパディングを追加
-          setTimeout(() => {
-            if (chartRef.current && chartData.length > visibleBars) {
-              // 右側に少し余白を追加（5本分）
-              const lastIndex = chartData.length - 1;
-              const firstVisibleIndex = Math.max(0, lastIndex - visibleBars - 5);
-              const paddedTo = chartData[Math.min(lastIndex, lastIndex + 5)]?.time || chartData[lastIndex].time;
-              
-              chartRef.current.timeScale().setVisibleRange({
-                from: chartData[firstVisibleIndex].time as any,
-                to: paddedTo as any
-              });
-            }
-          }, 100);
         }
       } catch (err) {
         console.error('Failed to load stock data:', err);
