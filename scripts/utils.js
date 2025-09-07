@@ -58,13 +58,18 @@ const dateUtils = {
 
   getCurrentMonthStart() {
     const today = new Date()
-    return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
+    // タイムゾーン問題を回避するため、文字列で直接構築
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+    return `${year}-${month}-01`
   },
 
   getLastMonthStart() {
     const today = new Date()
-    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    return lastMonth.toISOString().split('T')[0]
+    const lastMonth = new Date(today.getFullYear(), today.getMonth(), 0) // 前月の最終日
+    const year = lastMonth.getFullYear()
+    const month = String(lastMonth.getMonth() + 1).padStart(2, '0')
+    return `${year}-${month}-01`
   },
 
   isSaturday() {
