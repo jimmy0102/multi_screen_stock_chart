@@ -4,8 +4,11 @@ const { JQuantsAPI, convertToSupabaseFormat, SupabaseHelper, dateUtils } = requi
 const { updateTickerMaster } = require('./update-ticker-master')
 
 async function main() {
+  // TARGET_DATE環境変数があればそれを使用、なければ昨日の日付を使用
+  const targetDate = process.env.TARGET_DATE || dateUtils.getYesterday()
+  
   console.log('🚀 Starting J-Quants daily data fetch...')
-  console.log(`📅 Target date: ${dateUtils.getYesterday()}`)
+  console.log(`📅 Target date: ${targetDate}`)
   
   const jquants = new JQuantsAPI()
   const supabase = new SupabaseHelper()
@@ -37,8 +40,7 @@ async function main() {
     process.exit(1)
   }
   
-  // 5. 各銘柄の前営業日データ取得
-  const targetDate = dateUtils.getYesterday()
+  // 5. 各銘柄の指定日データ取得
   const allStockData = []
   
   console.log(`📈 Processing ${tickers.length} tickers...`)
