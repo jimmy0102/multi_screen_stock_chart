@@ -7,7 +7,7 @@ class TimeframeUpdater {
     this.supabase = new SupabaseHelper()
   }
 
-  async updateWeeklyData(ticker, weekStart) {
+  async calculateWeeklyData(ticker, weekStart) {
     try {
       // その週の日足データを取得
       const weekEnd = new Date(weekStart)
@@ -16,28 +16,26 @@ class TimeframeUpdater {
       
       const dailyData = await this.supabase.getDailyDataForPeriod(ticker, weekStart, weekEndStr)
       
-      if (dailyData.length === 0) return false
+      if (dailyData.length === 0) return null
       
       // 週足データ計算
       const ohlc = calculateOHLC(dailyData)
-      if (!ohlc) return false
+      if (!ohlc) return null
       
-      // 週足データを保存
-      const weeklyRecord = {
+      // 週足データを返す（保存はしない）
+      return {
         ticker,
         date: weekStart,
         timeframe: '1W',
         ...ohlc
       }
-      
-      return await this.supabase.saveStockData([weeklyRecord])
     } catch (error) {
-      console.error(`Error updating weekly data for ${ticker}:`, error.message)
-      return false
+      console.error(`Error calculating weekly data for ${ticker}:`, error.message)
+      return null
     }
   }
 
-  async updateMonthlyData(ticker, monthStart) {
+  async calculateMonthlyData(ticker, monthStart) {
     try {
       // その月の日足データを取得
       const nextMonth = new Date(monthStart)
@@ -46,24 +44,22 @@ class TimeframeUpdater {
       
       const dailyData = await this.supabase.getDailyDataForPeriod(ticker, monthStart, monthEnd)
       
-      if (dailyData.length === 0) return false
+      if (dailyData.length === 0) return null
       
       // 月足データ計算
       const ohlc = calculateOHLC(dailyData)
-      if (!ohlc) return false
+      if (!ohlc) return null
       
-      // 月足データを保存
-      const monthlyRecord = {
+      // 月足データを返す（保存はしない）
+      return {
         ticker,
         date: monthStart,
         timeframe: '1M',
         ...ohlc
       }
-      
-      return await this.supabase.saveStockData([monthlyRecord])
     } catch (error) {
-      console.error(`Error updating monthly data for ${ticker}:`, error.message)
-      return false
+      console.error(`Error calculating monthly data for ${ticker}:`, error.message)
+      return null
     }
   }
 }
@@ -107,42 +103,79 @@ async function main() {
   console.log(`📈 Processing ${updatedTickers.length} tickers for timeframe updates...`)
   console.log('💡 Logic: Every day we update current periods + finalize completed periods')
   
-  // 各銘柄の週足・月足を更新
+  // バッチ処理用の配列
+  const weeklyRecords = []
+  const monthlyRecords = []
+  const lastWeekRecords = []
+  const lastMonthRecords = []
+  
+  // 各銘柄の週足・月足を計算（バッチで保存するため）
   for (let i = 0; i < updatedTickers.length; i++) {
     const ticker = updatedTickers[i]
     
     if ((i + 1) % 100 === 0 || i === 0) {
-      console.log(`[${i + 1}/${updatedTickers.length}] Updating ${ticker}...`)
+      console.log(`[${i + 1}/${updatedTickers.length}] Calculating ${ticker}...`)
     }
     
-    // 1. 現在期間の更新（毎日実行）
-    if (await updater.updateWeeklyData(ticker, currentWeekStart)) {
-      weeklyUpdated++
+    // 1. 現在期間の計算（毎日実行）
+    const weeklyData = await updater.calculateWeeklyData(ticker, currentWeekStart)
+    if (weeklyData) {
+      weeklyRecords.push(weeklyData)
     }
     
-    if (await updater.updateMonthlyData(ticker, currentMonthStart)) {
-      monthlyUpdated++
+    const monthlyData = await updater.calculateMonthlyData(ticker, currentMonthStart)
+    if (monthlyData) {
+      monthlyRecords.push(monthlyData)
     }
     
-    // 2. 完了期間の確定（特定の日のみ実行）
+    // 2. 完了期間の計算（特定の日のみ実行）
     if (isWeekFinalized) {
       const lastWeekStart = dateUtils.getLastWeekStart()
-      if (await updater.updateWeeklyData(ticker, lastWeekStart)) {
-        lastWeekFinalized++
+      const lastWeekData = await updater.calculateWeeklyData(ticker, lastWeekStart)
+      if (lastWeekData) {
+        lastWeekRecords.push(lastWeekData)
       }
     }
     
     if (isMonthFinalized) {
       const lastMonthStart = dateUtils.getLastMonthStart()
-      if (await updater.updateMonthlyData(ticker, lastMonthStart)) {
-        lastMonthFinalized++
+      const lastMonthData = await updater.calculateMonthlyData(ticker, lastMonthStart)
+      if (lastMonthData) {
+        lastMonthRecords.push(lastMonthData)
       }
     }
     
     // 進捗表示
     if ((i + 1) % 100 === 0) {
-      console.log(`📊 Progress: ${i + 1}/${updatedTickers.length} tickers processed`)
+      console.log(`📊 Progress: ${i + 1}/${updatedTickers.length} tickers calculated`)
     }
+  }
+  
+  // バッチで保存
+  console.log('\n💾 Saving timeframe data in batches...')
+  
+  if (weeklyRecords.length > 0) {
+    console.log(`📊 Saving ${weeklyRecords.length} weekly records...`)
+    await supabase.saveStockData(weeklyRecords)
+    weeklyUpdated = weeklyRecords.length
+  }
+  
+  if (monthlyRecords.length > 0) {
+    console.log(`📊 Saving ${monthlyRecords.length} monthly records...`)
+    await supabase.saveStockData(monthlyRecords)
+    monthlyUpdated = monthlyRecords.length
+  }
+  
+  if (lastWeekRecords.length > 0) {
+    console.log(`📊 Saving ${lastWeekRecords.length} last week records...`)
+    await supabase.saveStockData(lastWeekRecords)
+    lastWeekFinalized = lastWeekRecords.length
+  }
+  
+  if (lastMonthRecords.length > 0) {
+    console.log(`📊 Saving ${lastMonthRecords.length} last month records...`)
+    await supabase.saveStockData(lastMonthRecords)
+    lastMonthFinalized = lastMonthRecords.length
   }
   
   console.log('\n🎉 Daily timeframe update completed!')
