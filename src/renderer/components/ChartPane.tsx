@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
 import { TimeFrame, ChartOptions } from '../types';
+import { getChartColors } from '../config/chartColors';
 
 interface ChartPaneProps {
   ticker: string;
@@ -50,21 +51,18 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
       }
     };
 
-    // デバッグ用ログ
-    console.log('Environment variables:', {
-      BULLISH_COLOR: import.meta.env.VITE_CHART_BULLISH_COLOR,
-      BEARISH_COLOR: import.meta.env.VITE_CHART_BEARISH_COLOR,
-      ALL_ENV: import.meta.env
-    });
+    // チャート色設定を取得
+    const colors = getChartColors();
+    console.log('Chart colors loaded:', colors);
 
     const chart = createChart(chartContainerRef.current, chartOptions);
     const series = chart.addCandlestickSeries({
-      upColor: import.meta.env.VITE_CHART_BULLISH_COLOR || '#4caf50',
-      downColor: import.meta.env.VITE_CHART_BEARISH_COLOR || '#f44336',
-      borderDownColor: import.meta.env.VITE_CHART_BEARISH_BORDER_COLOR || '#f44336',
-      borderUpColor: import.meta.env.VITE_CHART_BULLISH_BORDER_COLOR || '#4caf50',
-      wickDownColor: import.meta.env.VITE_CHART_BEARISH_WICK_COLOR || '#f44336',
-      wickUpColor: import.meta.env.VITE_CHART_BULLISH_WICK_COLOR || '#4caf50'
+      upColor: colors.bullish.body,
+      downColor: colors.bearish.body,
+      borderDownColor: colors.bearish.border,
+      borderUpColor: colors.bullish.border,
+      wickDownColor: colors.bearish.wick,
+      wickUpColor: colors.bullish.wick
     });
 
     chartRef.current = chart;
