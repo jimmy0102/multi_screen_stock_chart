@@ -52,12 +52,12 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
 
     const chart = createChart(chartContainerRef.current, chartOptions);
     const series = chart.addCandlestickSeries({
-      upColor: '#4caf50',
-      downColor: '#f44336',
-      borderDownColor: '#f44336',
-      borderUpColor: '#4caf50',
-      wickDownColor: '#f44336',
-      wickUpColor: '#4caf50'
+      upColor: import.meta.env.VITE_CHART_BULLISH_COLOR || '#4caf50',
+      downColor: import.meta.env.VITE_CHART_BEARISH_COLOR || '#f44336',
+      borderDownColor: import.meta.env.VITE_CHART_BEARISH_BORDER_COLOR || '#f44336',
+      borderUpColor: import.meta.env.VITE_CHART_BULLISH_BORDER_COLOR || '#4caf50',
+      wickDownColor: import.meta.env.VITE_CHART_BEARISH_WICK_COLOR || '#f44336',
+      wickUpColor: import.meta.env.VITE_CHART_BULLISH_WICK_COLOR || '#4caf50'
     });
 
     chartRef.current = chart;
