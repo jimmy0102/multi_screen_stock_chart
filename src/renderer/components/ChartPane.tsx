@@ -50,6 +50,13 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
       }
     };
 
+    // デバッグ用ログ
+    console.log('Environment variables:', {
+      BULLISH_COLOR: import.meta.env.VITE_CHART_BULLISH_COLOR,
+      BEARISH_COLOR: import.meta.env.VITE_CHART_BEARISH_COLOR,
+      ALL_ENV: import.meta.env
+    });
+
     const chart = createChart(chartContainerRef.current, chartOptions);
     const series = chart.addCandlestickSeries({
       upColor: import.meta.env.VITE_CHART_BULLISH_COLOR || '#4caf50',

@@ -7,6 +7,7 @@ export default defineConfig({
   root: 'src/renderer',
   base: './',
   envDir: '../../', // .envファイルの場所を指定
+  envPrefix: 'VITE_', // 環境変数のプレフィックスを明示的に指定
   build: {
     outDir: '../../dist/renderer',
     emptyOutDir: true
