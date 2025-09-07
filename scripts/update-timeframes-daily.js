@@ -71,7 +71,8 @@ class TimeframeUpdater {
 async function main() {
   console.log('🚀 Starting daily timeframe update...')
   
-  const targetDate = dateUtils.getYesterday()
+  // TARGET_DATE環境変数があればそれを使用、なければ昨日の日付を使用
+  const targetDate = process.env.TARGET_DATE || dateUtils.getYesterday()
   const currentWeekStart = dateUtils.getCurrentWeekStart()
   const currentMonthStart = dateUtils.getCurrentMonthStart()
   const isWeekFinalized = dateUtils.isSaturday()

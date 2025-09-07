@@ -272,10 +272,18 @@ class SupabaseHelper {
         }
         
         totalSaved += batch.length
-        console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(stockData.length/batchSize)}: ${batch.length} records (${totalSaved}/${stockData.length} total)`)
+        // 1レコードの場合はログを簡略化
+        if (stockData.length === 1) {
+          // 単一レコードの場合はログなし
+        } else {
+          console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(stockData.length/batchSize)}: ${batch.length} records (${totalSaved}/${stockData.length} total)`)
+        }
       }
       
-      console.log(`🎉 Successfully saved all ${totalSaved} records to Supabase`)
+      // 単一レコード保存の場合はログを簡略化
+      if (stockData.length > 1) {
+        console.log(`🎉 Successfully saved all ${totalSaved} records to Supabase`)
+      }
       return true
     } catch (error) {
       console.error('❌ Supabase save error:', error)
@@ -285,18 +293,38 @@ class SupabaseHelper {
 
   async getUpdatedTickers(targetDate) {
     try {
-      const { data, error } = await this.client
-        .from('stock_prices')
-        .select('ticker')
-        .eq('timeframe', '1D')
-        .eq('date', targetDate)
+      // ページング対応で全銘柄を取得
+      let allData = []
+      let from = 0
+      const pageSize = 1000
       
-      if (error) {
-        console.error('Error fetching updated tickers:', error)
-        return []
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await this.client
+          .from('stock_prices')
+          .select('ticker')
+          .eq('timeframe', '1D')
+          .eq('date', targetDate)
+          .range(from, from + pageSize - 1)
+        
+        if (error) {
+          console.error('Error fetching updated tickers:', error)
+          return []
+        }
+        
+        if (!data || data.length === 0) break
+        
+        allData = allData.concat(data)
+        from += pageSize
+        
+        // 1000件以上ある場合のみページング情報を表示
+        if (from === pageSize && data.length === pageSize) {
+          console.log(`📄 Fetching more updated tickers... (${from} fetched)`)
+        }
       }
       
-      const uniqueTickers = [...new Set(data.map(item => item.ticker))]
+      const uniqueTickers = [...new Set(allData.map(item => item.ticker))]
+      console.log(`📋 Found ${uniqueTickers.length} unique tickers updated on ${targetDate}`)
       return uniqueTickers
     } catch (error) {
       console.error('Error in getUpdatedTickers:', error)
