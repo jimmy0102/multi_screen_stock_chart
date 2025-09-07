@@ -148,6 +148,7 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'view') {
     event.waitUntil(
+      // eslint-disable-next-line no-undef
       clients.openWindow('/')
     )
   }

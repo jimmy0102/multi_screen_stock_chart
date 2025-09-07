@@ -161,38 +161,41 @@
   background-color: #ff8c00;
 }
 
-/* Ticker Search */
-.ticker-search {
+/* Ticker Search Inline */
+.ticker-search-inline {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 4px;
+  margin-right: auto;
 }
 
-.search-input {
-  flex: 1;
-  padding: 6px 12px;
-  border: 1px solid #dee2e6;
+.search-input-inline {
+  width: 150px;
+  padding: 6px 10px;
+  border: 2px solid #dee2e6;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
+  transition: all 0.2s;
 }
 
-.search-input:focus {
+.search-input-inline:focus {
   outline: none;
   border-color: #007acc;
   box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+  width: 200px;
 }
 
-.search-button {
-  padding: 6px 16px;
+.search-button-inline {
+  padding: 6px 12px;
   background-color: #007acc;
   color: #ffffff;
-  border: 1px solid #007acc;
+  border: 2px solid #007acc;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
+  transition: all 0.2s;
 }
 
-.search-button:hover {
+.search-button-inline:hover {
   background-color: #0056b3;
   border-color: #0056b3;
 }
@@ -417,6 +420,138 @@
   text-align: center;
 }
 
+/* Control Dropdown Styles */
+.control-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.control-button {
+  padding: 8px 12px;
+  background-color: #ffffff;
+  border: 2px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333333;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  height: 40px;
+  justify-content: center;
+}
+
+.control-button.icon-button {
+  min-width: 40px;
+  width: 40px;
+  padding: 0;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.control-button.icon-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.control-button:hover {
+  border-color: #007acc;
+  background-color: #f8f9fa;
+}
+
+.control-button.active {
+  border-color: #007acc;
+  background-color: #007acc;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.watchlist-button.active {
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.filter-button.active {
+  background-color: #28a745;
+  border-color: #28a745;
+  color: #ffffff;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background-color: #ffffff;
+  border: 2px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #f8f9fa;
+}
+
+.dropdown-item.active {
+  background-color: #e3f2fd;
+  font-weight: 600;
+  color: #007acc;
+}
+
+.dropdown-item:first-child {
+  border-top: 1px solid #dee2e6;
+}
+
+.dropdown-item + .dropdown-item {
+  border-top: 1px solid #f1f3f4;
+}
+
+/* Ticker Controls Layout */
+.ticker-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+/* Animation for dropdown appearance */
+.dropdown-menu {
+  animation: dropdownSlide 0.15s ease-out;
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .chart-grid {
@@ -428,5 +563,17 @@
 @media (max-height: 600px) {
   .note-drawer-content {
     height: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .control-button {
+    min-width: 100px;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+  
+  .ticker-controls {
+    gap: 6px;
   }
 }

@@ -19,7 +19,7 @@ async function updateTickerMaster() {
       throw new Error('J-Quants access token failed')
     }
     
-    // 3. J-Quants APIから最新のプライム銘柄リスト取得
+    // 3. J-Quants APIから最新の東証プライム銘柄リスト取得
     console.log('📋 Fetching latest TSE Prime stocks from J-Quants API...')
     const response = await require('axios').get(`https://api.jquants.com/v1/listed/info`, {
       headers: {
@@ -27,54 +27,81 @@ async function updateTickerMaster() {
       }
     })
     
+    // 東証プライムのみ
     const allStocks = response.data.info.filter(stock => 
       stock.MarketCode === '0111' || stock.MarketCodeName === 'プライム'
     )
     
     console.log(`📊 Found ${allStocks.length} stocks in TSE Prime`)
     
-    // 4. 特殊証券を除外（優先株、社債型種類株、REIT等）
+    // 4. 末尾0の5桁コードのみ許可（通常株式 + 特殊コード）
     const normalStocks = allStocks.filter(stock => {
-      const name = stock.CompanyName || ''
       const code = stock.Code || ''
       
-      // 除外条件
-      const isSpecialSecurity = 
-        name.includes('優先株') ||
-        name.includes('種類株') ||
-        name.includes('社債型') ||
-        name.includes('REIT') ||
-        name.includes('リート') ||
-        name.includes('投資法人') ||
-        name.includes('第１種') ||
-        name.includes('第1種') ||
-        name.includes('第２種') ||
-        name.includes('第2種') ||
-        code.length !== 4 ||  // 4桁以外は除外
-        !code.match(/^[0-9]{4}$/) // 数値4桁以外は除外
+      // 5桁以外は除外
+      if (code.length !== 5) return false
       
-      return !isSpecialSecurity
+      // 末尾0以外は除外（通常株式86970、特殊コード167A0のみ許可）
+      if (!code.match(/^.{4}0$/)) return false
+      
+      return true
     })
     
     console.log(`🔍 Filtered to ${normalStocks.length} normal stocks (excluded ${allStocks.length - normalStocks.length} special securities)`)
     
-    // 5. 現在のticker_masterを取得
-    const { data: currentTickers, error: fetchError } = await supabase.client
-      .from('ticker_master')
-      .select('symbol, name, market, sector')
-      .order('symbol')
+    // 5. 現在のticker_masterを取得（ページング対応）
+    console.log('📋 Fetching current ticker_master data...')
+    let allCurrentTickers = []
+    let from = 0
+    const pageSize = 1000
     
-    if (fetchError) {
-      throw new Error(`Failed to fetch current ticker_master: ${fetchError.message}`)
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error } = await supabase.client
+        .from('ticker_master')
+        .select('symbol, name, market, sector')
+        .order('symbol')
+        .range(from, from + pageSize - 1)
+      
+      if (error) {
+        throw new Error(`Failed to fetch current ticker_master: ${error.message}`)
+      }
+      
+      if (!data || data.length === 0) break
+      
+      allCurrentTickers = allCurrentTickers.concat(data)
+      from += pageSize
+      
+      console.log(`📄 Fetched page: ${from - pageSize + 1} to ${from - pageSize + data.length}`)
     }
+    
+    const currentTickers = allCurrentTickers
     
     console.log(`💾 Current ticker_master has ${currentTickers?.length || 0} tickers`)
     
+    // 5.5. 銘柄数の比較 - 差異がない場合は早期リターン
+    const currentCount = currentTickers?.length || 0
+    const newCount = normalStocks.length
+    
+    if (currentCount === newCount) {
+      console.log('✅ No change in ticker count - skipping update')
+      console.log(`📊 Both current and new have ${currentCount} tickers`)
+      return {
+        success: true,
+        added: 0,
+        removed: 0,
+        total: currentCount,
+        skipped: true
+      }
+    }
+    
+    console.log(`🔄 Ticker count changed: ${currentCount} → ${newCount} (${newCount - currentCount > 0 ? '+' : ''}${newCount - currentCount})`)
+    
     // 6. 新規銘柄と削除対象を特定
     const currentSymbols = new Set(currentTickers.map(t => t.symbol))
-    const newSymbols = new Set(normalStocks.map(s => s.Code))
+    const newSymbols = new Set(normalStocks.map(s => s.Code.slice(0, 4))) // 5桁から4桁に変換
     
-    const toAdd = normalStocks.filter(stock => !currentSymbols.has(stock.Code))
+    const toAdd = normalStocks.filter(stock => !currentSymbols.has(stock.Code.slice(0, 4)))
     const toRemove = currentTickers.filter(ticker => !newSymbols.has(ticker.symbol))
     
     console.log(`📈 New tickers to add: ${toAdd.length}`)
@@ -105,9 +132,8 @@ async function updateTickerMaster() {
       console.log('➕ Adding new tickers...')
       
       const tickersToInsert = toAdd.map(stock => ({
-        symbol: stock.Code,
+        symbol: stock.Code.slice(0, 4), // 5桁コードから4桁に変換（例：86970 → 8697）
         name: stock.CompanyName,
-        company_name: stock.CompanyName, // utils.jsのgetPrimeStocksが使用する可能性があるため
         market: 'TSE',
         sector: stock.Sector17CodeName || stock.SectorName || '不明'
       }))
@@ -122,7 +148,7 @@ async function updateTickerMaster() {
       
       console.log(`✅ Added ${toAdd.length} new tickers:`)
       toAdd.slice(0, 10).forEach(stock => {
-        console.log(`   + ${stock.Code}: ${stock.CompanyName}`)
+        console.log(`   + ${stock.Code.slice(0, 4)}: ${stock.CompanyName}`)
       })
       if (toAdd.length > 10) {
         console.log(`   ... and ${toAdd.length - 10} more`)

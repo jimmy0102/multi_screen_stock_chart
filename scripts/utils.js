@@ -136,22 +136,39 @@ class JQuantsAPI {
     try {
       console.log('📋 Fetching approved ticker list from ticker_master...')
       
-      // ticker_masterから4桁コードを取得し、5桁（末尾0付き）に変換
+      // ticker_masterから4桁コードを取得（ページング対応で全件取得）
       const supabase = new SupabaseHelper()
-      const { data, error } = await supabase.client
-        .from('ticker_master')
-        .select('symbol')
-        .order('symbol')
+      let allData = []
+      let from = 0
+      const pageSize = 1000
       
-      if (error) {
-        console.error('❌ Failed to get ticker_master data:', error)
-        return []
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase.client
+          .from('ticker_master')
+          .select('symbol')
+          .order('symbol')
+          .range(from, from + pageSize - 1)
+        
+        if (error) {
+          console.error('❌ Failed to get ticker_master data:', error)
+          return []
+        }
+        
+        if (!data || data.length === 0) break
+        
+        allData = allData.concat(data)
+        from += pageSize
+        
+        console.log(`📄 Fetched ticker page: ${from - pageSize + 1} to ${from - pageSize + data.length}`)
       }
       
-      if (!data || data.length === 0) {
+      if (allData.length === 0) {
         console.error('❌ No tickers found in ticker_master')
         return []
       }
+      
+      const data = allData
       
       // 4桁コードを5桁（末尾0付き）に変換
       const fiveDigitTickers = data.map(row => row.symbol + '0')

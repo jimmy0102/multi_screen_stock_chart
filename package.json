@@ -16,7 +16,6 @@
     "postinstall": "electron-builder install-app-deps",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "typecheck": "tsc --noEmit",
-    "import-data": "node scripts/import-jquants-data.js",
     "fetch-daily": "node scripts/fetch-jquants-daily.js"
   },
   "keywords": [
@@ -51,6 +50,7 @@
     "webpack-cli": "^5.0.0"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.0.1",
     "@supabase/supabase-js": "^2.57.0",
     "axios": "^1.11.0",
     "better-sqlite3": "^9.0.0",
