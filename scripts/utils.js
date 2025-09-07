@@ -251,20 +251,31 @@ class SupabaseHelper {
   async saveStockData(stockData) {
     if (!stockData || stockData.length === 0) return false
     
+    // 大量データの場合はバッチ処理で保存
+    const batchSize = 500
+    let totalSaved = 0
+    
     try {
-      const { error } = await this.client
-        .from('stock_prices')
-        .upsert(stockData, { 
-          onConflict: 'ticker,date,timeframe',
-          ignoreDuplicates: true 
-        })
-      
-      if (error) {
-        console.error('❌ Failed to save to Supabase:', error)
-        return false
+      for (let i = 0; i < stockData.length; i += batchSize) {
+        const batch = stockData.slice(i, i + batchSize)
+        
+        const { error } = await this.client
+          .from('stock_prices')
+          .upsert(batch, { 
+            onConflict: 'ticker,date,timeframe',
+            ignoreDuplicates: true 
+          })
+        
+        if (error) {
+          console.error(`❌ Failed to save batch ${Math.floor(i/batchSize) + 1}:`, error)
+          return false
+        }
+        
+        totalSaved += batch.length
+        console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(stockData.length/batchSize)}: ${batch.length} records (${totalSaved}/${stockData.length} total)`)
       }
       
-      console.log(`✅ Saved ${stockData.length} records to Supabase`)
+      console.log(`🎉 Successfully saved all ${totalSaved} records to Supabase`)
       return true
     } catch (error) {
       console.error('❌ Supabase save error:', error)
