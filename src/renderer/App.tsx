@@ -35,6 +35,9 @@ const App: React.FC = () => {
   const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [syncedPrice, setSyncedPrice] = useState<number | null>(null);
+  const [syncedTime, setSyncedTime] = useState<any>(null);
+  const [sourceChart, setSourceChart] = useState<string>('');
   const [authState, setAuthState] = useState({
     user: null as any,
     loading: true,
@@ -315,6 +318,13 @@ const App: React.FC = () => {
     }));
   };
 
+  // チャート間同期ハンドラー
+  const handleCrosshairMove = useCallback((price: number | null, time: any, sourceChartTitle: string) => {
+    setSyncedPrice(price);
+    setSyncedTime(time);
+    setSourceChart(sourceChartTitle);
+  }, []);
+
   // 銘柄検索機能
   const searchTicker = (query: string) => {
     const displayTickers = appState.showFavoritesOnly 
@@ -570,6 +580,10 @@ const App: React.FC = () => {
               timeFrame={layout.timeFrame}
               title={layout.title}
               delay={0} // 並列読み込み
+              onCrosshairMove={handleCrosshairMove}
+              syncedPrice={syncedPrice}
+              syncedTime={syncedTime}
+              sourceChart={sourceChart}
             />
           ) : (
             <div key={layout.position} className="chart-pane empty-pane">

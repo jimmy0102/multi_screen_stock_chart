@@ -8,9 +8,22 @@ interface ChartPaneProps {
   timeFrame: TimeFrame;
   title: string;
   delay?: number; // 遅延読み込みのミリ秒
+  onCrosshairMove?: (price: number | null, time: any, sourceChart: string) => void;
+  syncedPrice?: number | null;
+  syncedTime?: any;
+  sourceChart?: string; // 同期の送信者を識別
 }
 
-const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay = 0 }) => {
+const ChartPane: React.FC<ChartPaneProps> = ({ 
+  ticker, 
+  timeFrame, 
+  title, 
+  delay = 0, 
+  onCrosshairMove,
+  syncedPrice,
+  syncedTime,
+  sourceChart
+}) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -39,7 +52,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
         }
       },
       crosshair: {
-        mode: 1 // CrosshairMode.Normal
+        mode: 0 // CrosshairMode.Normal (0=Normal, 1=Magnet) - カーソル位置に自由に追従
       },
       rightPriceScale: {
         borderColor: '#e0e0e0'
@@ -81,7 +94,28 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(chartContainerRef.current);
 
+    // クロスヘアムーブイベントリスナーを追加
+    const handleCrosshairMove = (param: any) => {
+      if (param.point && seriesRef.current) {
+        // カーソルのY座標から正確な価格を取得
+        const price = seriesRef.current.coordinateToPrice(param.point.y);
+        
+        // 親コンポーネントに通知（チャート間同期用）
+        if (onCrosshairMove && price !== null && price !== undefined) {
+          onCrosshairMove(price, param.time, title);
+        }
+      } else {
+        // カーソルがチャート外の場合
+        if (onCrosshairMove) {
+          onCrosshairMove(null, null, title);
+        }
+      }
+    };
+
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
     return () => {
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       resizeObserver.disconnect();
       chart.remove();
     };
@@ -177,6 +211,34 @@ const ChartPane: React.FC<ChartPaneProps> = ({ ticker, timeFrame, title, delay =
 
     loadStockData();
   }, [ticker, timeFrame, delay]);
+
+  // 他のチャートからの同期プライスを受け取った時の処理
+  useEffect(() => {
+    // 自分自身のチャートからの同期は無視
+    if (sourceChart === title) {
+      return;
+    }
+
+    if (syncedPrice !== null && syncedTime !== null && chartRef.current && seriesRef.current) {
+      try {
+        // 価格が有効な数値であることを確認
+        if (typeof syncedPrice === 'number' && !isNaN(syncedPrice)) {
+          chartRef.current.setCrosshairPosition(syncedPrice, syncedTime, seriesRef.current);
+          console.log(`Synced crosshair to price ${syncedPrice} on ${title} chart (from ${sourceChart})`);
+        }
+      } catch (error) {
+        console.warn(`Failed to sync crosshair on ${title} chart:`, error);
+      }
+    } else if (syncedPrice === null && chartRef.current) {
+      // 他のチャートでカーソルが外れた場合、このチャートのクロスヘアもクリア
+      try {
+        chartRef.current.clearCrosshairPosition();
+        console.log(`Cleared crosshair on ${title} chart`);
+      } catch (error) {
+        console.warn(`Failed to clear crosshair on ${title} chart:`, error);
+      }
+    }
+  }, [syncedPrice, syncedTime, sourceChart, title]);
 
   return (
     <div className="chart-pane">

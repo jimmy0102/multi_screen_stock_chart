@@ -172,13 +172,10 @@ const TickerController: React.FC<TickerControllerProps> = ({
                   key={item.level}
                   className={`dropdown-item ${currentWatchlistLevel === item.level ? 'active' : ''}`}
                   onClick={() => handleWatchlistSelect(item.level)}
+                  style={{ padding: '8px 12px', minWidth: 'auto' }}
                 >
                   <i className={`${item.level === 0 ? 'far' : 'fas'} ${item.icon}`} 
-                     style={{ color: item.color, marginRight: '8px', fontSize: '16px' }}></i>
-                  {item.level === 0 && '登録なし'}
-                  {item.level === 1 && '銅'}
-                  {item.level === 2 && '銀'}
-                  {item.level === 3 && '金'}
+                     style={{ color: item.color, fontSize: '16px' }}></i>
                 </button>
               ))}
             </div>
@@ -215,13 +212,13 @@ const TickerController: React.FC<TickerControllerProps> = ({
                   key={item.filter}
                   className={`dropdown-item ${currentFilter === item.filter ? 'active' : ''}`}
                   onClick={() => handleFilterSelect(item.filter)}
+                  style={{ padding: '8px 12px', minWidth: 'auto' }}
                 >
                   <i className={`fas ${item.icon}`} 
-                     style={{ color: item.color, marginRight: '8px', fontSize: '16px' }}></i>
-                  {item.filter === 'all' && '全銘柄'}
-                  {item.filter === 'bronze' && '銅ウォッチ'}
-                  {item.filter === 'silver' && '銀ウォッチ'}
-                  {item.filter === 'gold' && '金ウォッチ'}
+                     style={{ color: item.color, marginRight: '6px', fontSize: '14px' }}></i>
+                  <span style={{ fontSize: '12px' }}>
+                    {item.filter === 'all' ? '全て' : 'マークのみ'}
+                  </span>
                 </button>
               ))}
             </div>
