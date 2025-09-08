@@ -262,25 +262,96 @@ class DirectSupabaseDatabase {
     return false
   }
 
-  // チャート描画関連 - これらも認証が必要
-  async getChartDrawings(_ticker: string, _timeframe: string): Promise<ChartDrawing[]> {
-    console.log('[DirectDB] Chart drawings require authentication - returning empty array')
-    return []
+  // チャート描画関連 - ローカルストレージ実装
+  async getChartDrawings(ticker: string, _timeframe: string): Promise<ChartDrawing[]> {
+    try {
+      const stored = localStorage.getItem('horizontalLines')
+      if (!stored) return []
+      
+      const allLines = JSON.parse(stored)
+      const tickerLines = allLines[ticker] || []
+      
+      // ChartDrawing形式に変換（timeframeは無視して全て返す - 同期のため）
+      return tickerLines.map((line: any) => ({
+        ...line,
+        ticker,
+        timeframe: _timeframe,
+        type: 'horizontal_line',
+        user_id: 'local'
+      }))
+    } catch (error) {
+      console.error('[DirectDB] Error loading horizontal lines:', error)
+      return []
+    }
   }
 
   async saveChartDrawing(
-    _ticker: string,
+    ticker: string,
     _timeframe: string,
-    _type: string,
-    _data: Record<string, any>
+    type: string,
+    data: Record<string, any>
   ): Promise<ChartDrawing | null> {
-    console.log('[DirectDB] Save chart drawing requires authentication - returning null')
-    return null
+    if (type !== 'horizontal_line') {
+      console.log('[DirectDB] Only horizontal_line type is supported')
+      return null
+    }
+
+    try {
+      const stored = localStorage.getItem('horizontalLines')
+      const allLines = stored ? JSON.parse(stored) : {}
+      
+      if (!allLines[ticker]) {
+        allLines[ticker] = []
+      }
+      
+      const newLine: ChartDrawing = {
+        id: `hl_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        ticker,
+        timeframe: '1D' as any, // 実際には全timeframeで共有
+        type: 'horizontal_line',
+        data,
+        user_id: 'local',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+      
+      allLines[ticker].push(newLine)
+      localStorage.setItem('horizontalLines', JSON.stringify(allLines))
+      
+      console.log('[DirectDB] Saved horizontal line:', newLine)
+      return newLine
+    } catch (error) {
+      console.error('[DirectDB] Error saving horizontal line:', error)
+      return null
+    }
   }
 
-  async deleteChartDrawing(_id: string): Promise<boolean> {
-    console.log('[DirectDB] Delete chart drawing requires authentication - returning false')
-    return false
+  async deleteChartDrawing(id: string): Promise<boolean> {
+    try {
+      const stored = localStorage.getItem('horizontalLines')
+      if (!stored) return false
+      
+      const allLines = JSON.parse(stored)
+      
+      // 全tickerを検索して該当IDを削除
+      for (const ticker in allLines) {
+        const index = allLines[ticker].findIndex((line: any) => line.id === id)
+        if (index !== -1) {
+          allLines[ticker].splice(index, 1)
+          if (allLines[ticker].length === 0) {
+            delete allLines[ticker]
+          }
+          localStorage.setItem('horizontalLines', JSON.stringify(allLines))
+          console.log('[DirectDB] Deleted horizontal line:', id)
+          return true
+        }
+      }
+      
+      return false
+    } catch (error) {
+      console.error('[DirectDB] Error deleting horizontal line:', error)
+      return false
+    }
   }
 
   // リアルタイム購読は未実装

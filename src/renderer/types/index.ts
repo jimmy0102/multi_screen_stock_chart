@@ -110,4 +110,6 @@ export interface KeyboardShortcuts {
   '1': () => void;          // 銅レベル設定
   '2': () => void;          // 銀レベル設定
   '3': () => void;          // 金レベル設定
+  'h': () => void;          // 水平線モード切替
+  'H': () => void;          // 水平線モード切替（大文字）
 }

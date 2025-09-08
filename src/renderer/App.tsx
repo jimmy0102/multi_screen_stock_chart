@@ -38,6 +38,8 @@ const App: React.FC = () => {
   const [syncedPrice, setSyncedPrice] = useState<number | null>(null);
   const [syncedTime, setSyncedTime] = useState<any>(null);
   const [sourceChart, setSourceChart] = useState<string>('');
+  const [horizontalLineMode, setHorizontalLineMode] = useState(false);
+  const [horizontalLineUpdate, setHorizontalLineUpdate] = useState(0); // 更新トリガー
   const [authState, setAuthState] = useState({
     user: null as any,
     loading: true,
@@ -370,10 +372,17 @@ const App: React.FC = () => {
     '3': () => setWatchlistLevel(appState.currentTicker, 3),
     'Enter': cycleLevelUp, // 順次レベルアップ
     
+    // 水平線モード
+    'h': () => setHorizontalLineMode(!horizontalLineMode),
+    'H': () => setHorizontalLineMode(!horizontalLineMode),
+    
     // その他
     'Space': () => toggleFavoritesFilter(), // 従来機能との互換性
     'Tab': () => setIsNoteDrawerOpen(true),
-    'Escape': () => setIsNoteDrawerOpen(false)
+    'Escape': () => {
+      setIsNoteDrawerOpen(false);
+      setHorizontalLineMode(false); // 水平線モードも解除
+    }
   });
 
   // 認証チェック
@@ -584,6 +593,12 @@ const App: React.FC = () => {
               syncedPrice={syncedPrice}
               syncedTime={syncedTime}
               sourceChart={sourceChart}
+              horizontalLineMode={horizontalLineMode}
+              onHorizontalLineAdded={() => {
+                setHorizontalLineMode(false);
+                setHorizontalLineUpdate(prev => prev + 1); // 他のチャートも更新
+              }}
+              horizontalLineUpdate={horizontalLineUpdate}
             />
           ) : (
             <div key={layout.position} className="chart-pane empty-pane">

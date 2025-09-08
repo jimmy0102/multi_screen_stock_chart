@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, IPriceLine } from 'lightweight-charts';
 import { TimeFrame, ChartOptions } from '../types';
 import { getChartColors } from '../config/chartColors';
+import { database } from '../../lib/database';
 
 interface ChartPaneProps {
   ticker: string;
@@ -12,6 +13,16 @@ interface ChartPaneProps {
   syncedPrice?: number | null;
   syncedTime?: any;
   sourceChart?: string; // 同期の送信者を識別
+  horizontalLineMode?: boolean;
+  onHorizontalLineAdded?: () => void;
+  horizontalLineUpdate?: number; // 更新トリガー
+}
+
+interface HorizontalLine {
+  id: string;
+  price: number;
+  color: string;
+  priceLine?: IPriceLine;
 }
 
 const ChartPane: React.FC<ChartPaneProps> = ({ 
@@ -22,13 +33,36 @@ const ChartPane: React.FC<ChartPaneProps> = ({
   onCrosshairMove,
   syncedPrice,
   syncedTime,
-  sourceChart
+  sourceChart,
+  horizontalLineMode = false,
+  onHorizontalLineAdded,
+  horizontalLineUpdate = 0
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [horizontalLines, setHorizontalLines] = useState<HorizontalLine[]>([]);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [pendingLinePrice, setPendingLinePrice] = useState<number | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lineId?: string } | null>(null);
+  
+  // 水平線設定の取得
+  const lineWidth = parseInt((import.meta as any).env.VITE_HORIZONTAL_LINE_WIDTH || '3');
+  const lineOpacity = parseFloat((import.meta as any).env.VITE_HORIZONTAL_LINE_OPACITY || '0.8');
+  const lineStyle = (import.meta as any).env.VITE_HORIZONTAL_LINE_STYLE || 'solid';
+  
+  // プリセットカラー
+  const HORIZONTAL_LINE_COLORS = [
+    { name: 'レジスタンス（強）', color: '#FF0000' },
+    { name: 'レジスタンス（弱）', color: '#FF9999' },
+    { name: 'サポート（強）', color: '#0000FF' },
+    { name: 'サポート（弱）', color: '#9999FF' },
+    { name: '中立ライン', color: '#FFD700' },
+    { name: '注目ライン', color: '#00FF00' },
+    { name: 'カスタム', color: '#808080' }
+  ];
 
   // チャートの初期化
   useEffect(() => {
@@ -240,11 +274,184 @@ const ChartPane: React.FC<ChartPaneProps> = ({
     }
   }, [syncedPrice, syncedTime, sourceChart, title]);
 
+  // 水平線の初期化フラグ
+  const horizontalLinesLoadedRef = useRef<string>('');
+
+  // 水平線を読み込む
+  useEffect(() => {
+    const loadHorizontalLines = async () => {
+      const currentKey = `${ticker}-${timeFrame}`;
+      
+      // 既存の水平線をクリーンアップ
+      if (horizontalLinesLoadedRef.current !== currentKey) {
+        // 銘柄またはtimeframeが変わった場合のみクリーンアップ
+        setHorizontalLines(prevLines => {
+          prevLines.forEach(line => {
+            if (line.priceLine && seriesRef.current) {
+              try {
+                seriesRef.current.removePriceLine(line.priceLine);
+              } catch (e) {
+                // 既に削除されている場合のエラーを無視
+              }
+            }
+          });
+          return [];
+        });
+      }
+      
+      const drawings = await database.getChartDrawings(ticker, timeFrame);
+      const newLines: HorizontalLine[] = [];
+      
+      // 既存の水平線を全て削除してから新規追加（重複防止）
+      horizontalLines.forEach(line => {
+        if (line.priceLine && seriesRef.current) {
+          try {
+            seriesRef.current.removePriceLine(line.priceLine);
+          } catch (e) {
+            // エラーを無視
+          }
+        }
+      });
+      
+      // チャートに水平線を追加
+      drawings.forEach(d => {
+        if (seriesRef.current) {
+          try {
+            const priceLine = seriesRef.current.createPriceLine({
+              price: d.data.price,
+              color: d.data.color,
+              lineWidth: lineWidth as any,
+              lineStyle: lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0,
+              axisLabelVisible: true,
+              title: ''
+            });
+            
+            newLines.push({
+              id: d.id,
+              price: d.data.price,
+              color: d.data.color,
+              priceLine
+            });
+          } catch (e) {
+            console.warn('Failed to create price line:', e);
+          }
+        }
+      });
+      
+      setHorizontalLines(newLines);
+      horizontalLinesLoadedRef.current = currentKey;
+    };
+
+    if (ticker && seriesRef.current) {
+      // 少し遅延を入れてチャートの準備を待つ
+      setTimeout(() => {
+        loadHorizontalLines();
+      }, 100);
+    }
+  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate]);
+
+  // チャートクリック時の処理
+  const handleChartClick = useCallback((param: any) => {
+    if (horizontalLineMode && param.point) {
+      const price = seriesRef.current?.coordinateToPrice(param.point.y);
+      if (price !== null && price !== undefined) {
+        setPendingLinePrice(price);
+        setShowColorPicker(true);
+      }
+    }
+  }, [horizontalLineMode]);
+
+  // 色選択後の処理
+  const handleColorSelect = useCallback(async (color: string) => {
+    if (pendingLinePrice !== null && seriesRef.current) {
+      // データベースに保存
+      const drawing = await database.saveChartDrawing(
+        ticker,
+        timeFrame,
+        'horizontal_line',
+        { price: pendingLinePrice, color, width: lineWidth }
+      );
+      
+      if (drawing) {
+        // チャートに表示
+        const priceLine = seriesRef.current.createPriceLine({
+          price: pendingLinePrice,
+          color: color,
+          lineWidth: lineWidth as any,
+          lineStyle: lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0,
+          axisLabelVisible: true,
+          title: ''
+        });
+        
+        setHorizontalLines(prev => [...prev, {
+          id: drawing.id,
+          price: pendingLinePrice,
+          color: color,
+          priceLine
+        }]);
+      }
+    }
+    
+    setShowColorPicker(false);
+    setPendingLinePrice(null);
+    onHorizontalLineAdded?.();
+  }, [pendingLinePrice, ticker, timeFrame, lineWidth, lineStyle, onHorizontalLineAdded]);
+
+  // 水平線削除処理
+  const handleDeleteLine = useCallback(async (lineId: string) => {
+    const success = await database.deleteChartDrawing(lineId);
+    if (success) {
+      setHorizontalLines(prev => {
+        const line = prev.find(l => l.id === lineId);
+        if (line?.priceLine) {
+          seriesRef.current?.removePriceLine(line.priceLine);
+        }
+        return prev.filter(l => l.id !== lineId);
+      });
+      
+      // 他のチャートも更新（削除の同期）
+      onHorizontalLineAdded?.();
+    }
+    setContextMenu(null);
+  }, [onHorizontalLineAdded]);
+
+  // チャート上でクリックイベントを設定
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.subscribeClick(handleChartClick);
+      return () => {
+        chartRef.current?.unsubscribeClick(handleChartClick);
+      };
+    }
+  }, [handleChartClick]);
+
+  // 右クリックメニュー処理
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    
+    // 水平線上かチェック
+    const clickY = e.nativeEvent.offsetY;
+    const clickedLine = horizontalLines.find(line => {
+      if (seriesRef.current && line.priceLine) {
+        const lineY = seriesRef.current.priceToCoordinate(line.price);
+        return lineY && Math.abs(lineY - clickY) < 5;
+      }
+      return false;
+    });
+    
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      lineId: clickedLine?.id
+    });
+  }, [horizontalLines]);
+
   return (
     <div className="chart-pane">
       <div className="chart-header">
         <div className="chart-title">
           {title} - {ticker}
+          {horizontalLineMode && <span style={{ marginLeft: '10px', color: '#ff0000' }}>📏 水平線モード</span>}
         </div>
       </div>
       
@@ -266,9 +473,92 @@ const ChartPane: React.FC<ChartPaneProps> = ({
           style={{
             width: '100%',
             height: '100%',
-            visibility: isLoading || error ? 'hidden' : 'visible'
+            visibility: isLoading || error ? 'hidden' : 'visible',
+            cursor: horizontalLineMode ? 'crosshair' : 'default'
           }}
+          onContextMenu={handleContextMenu}
         />
+        
+        {/* 色選択パレット */}
+        {showColorPicker && (
+          <div className="color-picker-overlay" onClick={() => setShowColorPicker(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}>
+            <div className="color-picker-popup" onClick={e => e.stopPropagation()}
+              style={{
+                backgroundColor: 'white',
+                padding: '20px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+              }}>
+              <h3>水平線の色を選択</h3>
+              <div className="color-options" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {HORIZONTAL_LINE_COLORS.map(({ name, color }) => (
+                  <div
+                    key={color}
+                    className="color-option"
+                    onClick={() => handleColorSelect(color)}
+                    style={{
+                      backgroundColor: color,
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      border: '2px solid #ccc',
+                      opacity: lineOpacity
+                    }}
+                    title={name}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* 右クリックメニュー */}
+        {contextMenu && (
+          <div 
+            className="context-menu"
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              backgroundColor: 'white',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+              zIndex: 1000
+            }}
+            onMouseLeave={() => setContextMenu(null)}
+          >
+            {contextMenu.lineId ? (
+              <button
+                onClick={() => handleDeleteLine(contextMenu.lineId!)}
+                style={{
+                  display: 'block',
+                  padding: '8px 16px',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left'
+                }}
+              >
+                この水平線を削除
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );
