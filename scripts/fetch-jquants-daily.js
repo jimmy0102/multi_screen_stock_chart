@@ -103,6 +103,39 @@ async function main() {
         console.error('❌ Timeframe update error:', error.message)
         // エラーでも日次更新は成功とみなす
       }
+      
+      // 8. データヘルスチェック
+      console.log('\n🔍 Performing data health check...')
+      try {
+        // 0価格データのチェック
+        const { data: zeroData } = await supabase.supabase
+          .from('stock_prices')
+          .select('date, ticker')
+          .eq('timeframe', '1D')
+          .or('open.lte.0,high.lte.0,low.lte.0,close.lte.0')
+          .limit(10)
+        
+        if (zeroData && zeroData.length > 0) {
+          console.error('⚠️  Warning: Found zero-price 1D data:')
+          zeroData.forEach(row => {
+            console.error(`   - ${row.ticker} on ${row.date}`)
+          })
+        } else {
+          console.log('✅ No zero-price data found')
+        }
+        
+        // 最新データ件数の確認
+        const { count: todayCount } = await supabase.supabase
+          .from('stock_prices')
+          .select('*', { count: 'exact', head: true })
+          .eq('date', targetDate)
+          .eq('timeframe', '1D')
+        
+        console.log(`📊 Today's data count: ${todayCount || 0} records for ${targetDate}`)
+        
+      } catch (error) {
+        console.error('❌ Health check error:', error.message)
+      }
     } else {
       console.error('❌ Failed to save data')
       process.exit(1)

@@ -5,6 +5,15 @@
 require('dotenv').config()
 const { createClient } = require('@supabase/supabase-js')
 const axios = require('axios')
+const { 
+  toJstYmd, 
+  isValidBar, 
+  getJstYesterday, 
+  getJstCurrentWeekStart, 
+  getJstCurrentMonthStart,
+  isJstSaturday,
+  isJstFirstOfMonth
+} = require('./jst-utils')
 
 // 定数
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -28,12 +37,10 @@ function createSupabaseClient() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 }
 
-// 日付ユーティリティ
+// 日付ユーティリティ（JST対応版）
 const dateUtils = {
   getYesterday() {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    return yesterday.toISOString().split('T')[0]
+    return getJstYesterday()
   },
 
   getStartDate() {
@@ -41,43 +48,39 @@ const dateUtils = {
   },
 
   getCurrentWeekStart() {
-    const today = new Date()
-    const day = today.getDay()
-    const sunday = new Date(today)
-    sunday.setDate(today.getDate() - day)
-    return sunday.toISOString().split('T')[0]
+    return getJstCurrentWeekStart()
   },
 
   getLastWeekStart() {
-    const today = new Date()
-    const day = today.getDay()
-    const lastSunday = new Date(today)
-    lastSunday.setDate(today.getDate() - day - 7)
-    return lastSunday.toISOString().split('T')[0]
+    // JST基準で先週の開始日を計算
+    const { DateTime } = require('luxon')
+    const lastSunday = DateTime.now()
+      .setZone('Asia/Tokyo')
+      .minus({ weeks: 1 })
+      .minus({ days: DateTime.now().setZone('Asia/Tokyo').weekday % 7 })
+    return lastSunday.toFormat('yyyy-LL-dd')
   },
 
   getCurrentMonthStart() {
-    const today = new Date()
-    // タイムゾーン問題を回避するため、文字列で直接構築
-    const year = today.getFullYear()
-    const month = String(today.getMonth() + 1).padStart(2, '0')
-    return `${year}-${month}-01`
+    return getJstCurrentMonthStart()
   },
 
   getLastMonthStart() {
-    const today = new Date()
-    const lastMonth = new Date(today.getFullYear(), today.getMonth(), 0) // 前月の最終日
-    const year = lastMonth.getFullYear()
-    const month = String(lastMonth.getMonth() + 1).padStart(2, '0')
-    return `${year}-${month}-01`
+    // JST基準で先月の開始日を計算
+    const { DateTime } = require('luxon')
+    const lastMonth = DateTime.now()
+      .setZone('Asia/Tokyo')
+      .minus({ months: 1 })
+      .startOf('month')
+    return lastMonth.toFormat('yyyy-LL-dd')
   },
 
   isSaturday() {
-    return new Date().getDay() === 6
+    return isJstSaturday(new Date())
   },
 
   isFirstOfMonth() {
-    return new Date().getDate() === 1
+    return isJstFirstOfMonth(new Date())
   }
 }
 
@@ -217,34 +220,59 @@ class JQuantsAPI {
   }
 }
 
-// データ変換ユーティリティ
+// データ変換ユーティリティ（0価格バリデーション付き）
 function convertToSupabaseFormat(jquantsData) {
-  return jquantsData.map(item => ({
-    ticker: item.Code,
-    date: item.Date,
-    timeframe: '1D',
-    open: parseFloat(item.Open) || 0,
-    high: parseFloat(item.High) || 0,
-    low: parseFloat(item.Low) || 0,
-    close: parseFloat(item.Close) || 0,
-    volume: parseInt(item.Volume) || 0
-  }))
+  return jquantsData
+    .map(item => ({
+      ticker: item.Code,
+      date: toJstYmd(item.Date), // JST基準の日付に変換
+      timeframe: '1D',
+      open: parseFloat(item.Open) || 0,
+      high: parseFloat(item.High) || 0,
+      low: parseFloat(item.Low) || 0,
+      close: parseFloat(item.Close) || 0,
+      volume: parseInt(item.Volume) || 0
+    }))
+    .filter(record => {
+      // 0価格や無効なデータを除外
+      if (!isValidBar(record)) {
+        console.log(`⚠️  Skipping invalid data for ${record.ticker} on ${record.date}: OHLC=${record.open}/${record.high}/${record.low}/${record.close}`)
+        return false
+      }
+      return true
+    })
 }
 
-// OHLC計算ユーティリティ
+// OHLC計算ユーティリティ（0価格除外・バリデーション付き）
 function calculateOHLC(dailyData) {
   if (!dailyData || dailyData.length === 0) return null
   
-  // 時系列順にソート
-  dailyData.sort((a, b) => new Date(a.date) - new Date(b.date))
+  // 有効なデータのみフィルタリング（0価格除外）
+  const validData = dailyData.filter(record => isValidBar(record))
   
-  return {
-    open: dailyData[0].open,
-    close: dailyData[dailyData.length - 1].close,
-    high: Math.max(...dailyData.map(d => d.high)),
-    low: Math.min(...dailyData.filter(d => d.low > 0).map(d => d.low)),
-    volume: dailyData.reduce((sum, d) => sum + (d.volume || 0), 0)
+  if (validData.length === 0) {
+    console.log('⚠️  No valid data after filtering out zero prices')
+    return null
   }
+  
+  // 時系列順にソート
+  validData.sort((a, b) => new Date(a.date) - new Date(b.date))
+  
+  const result = {
+    open: validData[0].open,
+    close: validData[validData.length - 1].close,
+    high: Math.max(...validData.map(d => d.high)),
+    low: Math.min(...validData.map(d => d.low)),
+    volume: validData.reduce((sum, d) => sum + (d.volume || 0), 0)
+  }
+  
+  // 計算結果も検証
+  if (!isValidBar(result)) {
+    console.log('⚠️  Calculated OHLC is invalid:', result)
+    return null
+  }
+  
+  return result
 }
 
 // Supabase操作ユーティリティ

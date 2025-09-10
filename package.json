@@ -16,7 +16,8 @@
     "postinstall": "electron-builder install-app-deps",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "typecheck": "tsc --noEmit",
-    "fetch-daily": "node scripts/fetch-jquants-daily.js"
+    "fetch-daily": "node scripts/fetch-jquants-daily.js",
+    "update-timeframes": "node scripts/update-timeframes-daily.js"
   },
   "keywords": [
     "electron",
@@ -56,6 +57,7 @@
     "better-sqlite3": "^9.0.0",
     "dotenv": "^17.2.1",
     "lightweight-charts": "^4.1.0",
+    "luxon": "^3.7.2",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "xlsx": "^0.18.5"

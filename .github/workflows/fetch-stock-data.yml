@@ -25,10 +25,7 @@ jobs:
         cache: 'npm'
         
     - name: Install dependencies
-      run: |
-        npm ci
-        # Ensure required packages are installed
-        npm install --save-dev @supabase/supabase-js axios
+      run: npm ci
         
     - name: Fetch daily J-Quants data and update Supabase
       env:

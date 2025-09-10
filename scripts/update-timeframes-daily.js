@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+// 週足・月足データの更新スクリプト（JST対応・0価格除外版）
 const { SupabaseHelper, dateUtils, calculateOHLC } = require('./utils')
 
 class TimeframeUpdater {

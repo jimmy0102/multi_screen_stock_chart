@@ -156,7 +156,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, []);
+  }, [onCrosshairMove, title]);
 
   // データの読み込みと更新
   useEffect(() => {
@@ -351,7 +351,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
         loadHorizontalLines();
       }, 100);
     }
-  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate]);
+  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate, horizontalLines]);
 
   // チャートクリック時の処理
   const handleChartClick = useCallback((param: any) => {
