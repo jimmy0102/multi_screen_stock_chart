@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import path from 'path';
 import { DatabaseManager } from './database';
 import { JQuantsClient } from './jquants-client';
@@ -18,6 +18,9 @@ class StockChartApp {
   }
 
   private initializeApp() {
+    // カスタムプロトコルを登録
+    app.setAsDefaultProtocolClient('multiscreenstockchart');
+    
     app.whenReady().then(() => {
       Menu.setApplicationMenu(null);
       this.createMainWindow();
@@ -39,6 +42,29 @@ class StockChartApp {
 
     app.on('before-quit', () => {
       this.cleanup();
+    });
+
+    // カスタムプロトコルでアプリが開かれた時の処理（Windows/Linux）
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+      // OAuth認証のリダイレクトを検出
+      const url = commandLine.find(arg => arg.startsWith('multiscreenstockchart://'));
+      if (url) {
+        console.log('[Main] Custom protocol URL received:', url);
+        this.handleOAuthCallback(url);
+      }
+      
+      // ウィンドウを前面に表示
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+        this.mainWindow.focus();
+      }
+    });
+
+    // macOS でカスタムプロトコルが開かれた時の処理
+    app.on('open-url', (event, url) => {
+      event.preventDefault();
+      console.log('[Main] Custom protocol URL received (macOS):', url);
+      this.handleOAuthCallback(url);
     });
   }
 
@@ -71,6 +97,32 @@ class StockChartApp {
 
     this.mainWindow.on('closed', () => {
       this.mainWindow = null;
+    });
+
+    // 外部リンクを既定のブラウザで開く（OAuth認証用）
+    this.mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      console.log('[Main] Opening external URL:', url);
+      shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
+    // OAuth認証のコールバックURLを監視
+    this.mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+      const parsedUrl = new URL(navigationUrl);
+      console.log('[Main] Navigation intercepted:', navigationUrl);
+      
+      // Supabaseの認証コールバックかチェック
+      if (parsedUrl.origin === 'https://yuzgwwnecgvulsrqbxng.supabase.co' && 
+          parsedUrl.pathname === '/auth/v1/callback') {
+        console.log('[Main] OAuth callback detected, processing...');
+        
+        // フラグメントにアクセストークンが含まれている場合
+        const hash = parsedUrl.hash;
+        if (hash) {
+          console.log('[Main] Found hash in callback URL, sending to renderer...');
+          this.mainWindow?.webContents.send('oauth-callback', navigationUrl);
+        }
+      }
     });
   }
 
@@ -224,6 +276,35 @@ class StockChartApp {
     // 処理中に新しいリクエストが追加された場合は再処理
     if (this.fetchQueue.size > 0) {
       setTimeout(() => this.processFetchQueue(), 1000);
+    }
+  }
+
+  private handleOAuthCallback(url: string) {
+    console.log('[Main] Processing OAuth callback URL:', url);
+    
+    try {
+      const urlObj = new URL(url);
+      console.log('[Main] OAuth callback received:', {
+        protocol: urlObj.protocol,
+        pathname: urlObj.pathname,
+        hash: urlObj.hash ? 'present' : 'missing',
+        search: urlObj.search ? 'present' : 'missing'
+      });
+      
+      // レンダラープロセスにOAuth完了を通知
+      this.mainWindow?.webContents.send('oauth-callback', url);
+      
+      // ウィンドウを前面に表示
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore();
+        }
+        this.mainWindow.focus();
+        this.mainWindow.show();
+      }
+      
+    } catch (error) {
+      console.error('[Main] Error parsing OAuth callback URL:', error);
     }
   }
 

@@ -108,7 +108,7 @@ async function main() {
       console.log('\n🔍 Performing data health check...')
       try {
         // 0価格データのチェック
-        const { data: zeroData } = await supabase.supabase
+        const { data: zeroData } = await supabase
           .from('stock_prices')
           .select('date, ticker')
           .eq('timeframe', '1D')
@@ -125,7 +125,7 @@ async function main() {
         }
         
         // 最新データ件数の確認
-        const { count: todayCount } = await supabase.supabase
+        const { count: todayCount } = await supabase
           .from('stock_prices')
           .select('*', { count: 'exact', head: true })
           .eq('date', targetDate)

@@ -25,6 +25,9 @@ export interface ElectronAPI {
   // App operations
   getAppVersion: () => Promise<string>;
   quitApp: () => Promise<void>;
+  
+  // OAuth operations
+  onOAuthCallback: (callback: (url: string) => void) => void;
 }
 
 const electronAPI: ElectronAPI = {
@@ -51,7 +54,12 @@ const electronAPI: ElectronAPI = {
   
   // App operations
   getAppVersion: () => ipcRenderer.invoke('app-version'),
-  quitApp: () => ipcRenderer.invoke('app-quit')
+  quitApp: () => ipcRenderer.invoke('app-quit'),
+  
+  // OAuth operations
+  onOAuthCallback: (callback) => {
+    ipcRenderer.on('oauth-callback', (_, url) => callback(url));
+  }
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

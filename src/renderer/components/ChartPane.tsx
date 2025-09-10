@@ -285,36 +285,27 @@ const ChartPane: React.FC<ChartPaneProps> = ({
     const loadHorizontalLines = async () => {
       const currentKey = `${ticker}-${timeFrame}`;
       
-      // 既存の水平線をクリーンアップ
-      if (horizontalLinesLoadedRef.current !== currentKey) {
-        // 銘柄またはtimeframeが変わった場合のみクリーンアップ
-        setHorizontalLines(prevLines => {
-          prevLines.forEach(line => {
-            if (line.priceLine && seriesRef.current) {
-              try {
-                seriesRef.current.removePriceLine(line.priceLine);
-              } catch (e) {
-                // 既に削除されている場合のエラーを無視
-              }
-            }
-          });
-          return [];
-        });
+      // 既に同じキーで読み込み済みの場合はスキップ（重複防止）
+      if (horizontalLinesLoadedRef.current === currentKey) {
+        return;
       }
+      
+      // 既存の水平線をクリーンアップ
+      setHorizontalLines(prevLines => {
+        prevLines.forEach(line => {
+          if (line.priceLine && seriesRef.current) {
+            try {
+              seriesRef.current.removePriceLine(line.priceLine);
+            } catch (e) {
+              // 既に削除されている場合のエラーを無視
+            }
+          }
+        });
+        return [];
+      });
       
       const drawings = await database.getChartDrawings(ticker, timeFrame);
       const newLines: HorizontalLine[] = [];
-      
-      // 既存の水平線を全て削除してから新規追加（重複防止）
-      horizontalLines.forEach(line => {
-        if (line.priceLine && seriesRef.current) {
-          try {
-            seriesRef.current.removePriceLine(line.priceLine);
-          } catch (e) {
-            // エラーを無視
-          }
-        }
-      });
       
       // チャートに水平線を追加
       drawings.forEach(d => {
@@ -351,7 +342,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
         loadHorizontalLines();
       }, 100);
     }
-  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate, horizontalLines]);
+  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate]);
 
   // チャートクリック時の処理
   const handleChartClick = useCallback((param: any) => {

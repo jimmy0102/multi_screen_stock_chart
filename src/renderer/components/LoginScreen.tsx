@@ -56,9 +56,28 @@ const LoginScreen: React.FC = () => {
     setError(null)
 
     try {
-      // Google認証は後で実装
-      setError('Google認証は現在準備中です')
+      console.log('[LoginScreen] Starting Google authentication...')
+      
+      // Electronアプリかどうかを判定
+      const isElectron = window.navigator.userAgent.includes('Electron')
+      console.log('[LoginScreen] Running in Electron:', isElectron)
+      
+      const result = await simpleAuthService.signInWithGoogle()
+      console.log('[LoginScreen] Google auth initiated:', result)
+      
+      // Electronの場合は一定時間後にローディングを停止
+      if (isElectron) {
+        setTimeout(() => {
+          console.log('[LoginScreen] Electron OAuth timeout, stopping loading...')
+          setLoading(false)
+          setError('Google認証が完了しませんでした。認証画面で認証を完了してからお待ちください。（最大3分）')
+        }, 30000) // 30秒後
+      }
+      
+      // OAuth認証はリダイレクトするため、ここでloadingをfalseにしない
+      // 認証成功時はページがリロードされるか、auth state changeで処理される
     } catch (error) {
+      console.error('[LoginScreen] Google authentication error:', error)
       setError(error instanceof Error ? error.message : 'Google認証でエラーが発生しました')
       setLoading(false)
     }

@@ -22,6 +22,14 @@ class SimpleAuthService {
     
     console.log('[SimpleAuth] Starting initialization...')
     
+    // Electronアプリの場合、OAuth コールバックを監視
+    if (window.navigator.userAgent.includes('Electron') && window.electronAPI?.onOAuthCallback) {
+      window.electronAPI.onOAuthCallback((url: string) => {
+        console.log('[SimpleAuth] OAuth callback received:', url)
+        this.handleOAuthCallback(url)
+      })
+    }
+    
     try {
       console.log('[SimpleAuth] Calling supabase.auth.getSession()...')
       const startTime = Date.now()
@@ -177,6 +185,171 @@ class SimpleAuthService {
     
     if (error) throw error
     return data
+  }
+
+  async signInWithGoogle() {
+    // Electronアプリかどうかを判定
+    const isElectron = window.navigator.userAgent.includes('Electron')
+    console.log('[SimpleAuth] signInWithGoogle - isElectron:', isElectron)
+    
+    if (isElectron) {
+      // Electronの場合は手動でOAuth URLを取得して外部ブラウザで開く
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          // カスタムプロトコルを使用してアプリに戻る
+          redirectTo: 'multiscreenstockchart://auth/callback',
+          skipBrowserRedirect: true
+        }
+      })
+      
+      if (error) {
+        console.error('[SimpleAuth] OAuth URL generation error:', error)
+        throw error
+      }
+      
+      // OAuth URLをログ出力
+      console.log('[SimpleAuth] OAuth URL generated:', data.url)
+      
+      if (data.url) {
+        // 外部ブラウザでOAuth URLを開く
+        console.log('[SimpleAuth] Opening OAuth URL in external browser...')
+        
+        // 外部ブラウザでOAuth URLを開く
+        window.open(data.url, '_blank')
+        
+        // セッション確認を開始
+        this.startElectronAuthPolling()
+      } else {
+        throw new Error('OAuth URL not generated')
+      }
+      
+      return data
+    } else {
+      // ブラウザの場合は通常のフロー
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      })
+      
+      if (error) throw error
+      return data
+    }
+  }
+
+  private startElectronAuthPolling() {
+    console.log('[SimpleAuth] Starting Electron auth polling...')
+    
+    let pollCount = 0
+    const maxPolls = 30 // 最大30回（3分間）
+    
+    const pollInterval = setInterval(async () => {
+      pollCount++
+      console.log(`[SimpleAuth] Polling session... (${pollCount}/${maxPolls})`)
+      
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (session && session.user) {
+          console.log('[SimpleAuth] Session found during polling!', session.user.email)
+          clearInterval(pollInterval)
+          
+          // 認証成功をトリガー
+          this.updateState({
+            user: { 
+              id: session.user.id, 
+              email: session.user.email || '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
+            loading: false,
+            error: null
+          })
+          return
+        }
+        
+        if (pollCount >= maxPolls) {
+          console.log('[SimpleAuth] Polling timeout reached')
+          clearInterval(pollInterval)
+          this.updateState({
+            user: null,
+            loading: false,
+            error: 'Google認証がタイムアウトしました。再度お試しください。'
+          })
+        }
+      } catch (error) {
+        console.error('[SimpleAuth] Error during polling:', error)
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval)
+          this.updateState({
+            user: null,
+            loading: false,
+            error: 'Google認証の確認に失敗しました。'
+          })
+        }
+      }
+    }, 6000) // 6秒ごとにチェック
+  }
+
+  private async handleOAuthCallback(url: string) {
+    console.log('[SimpleAuth] Processing OAuth callback:', url)
+    
+    try {
+      const urlObj = new URL(url)
+      const fragment = urlObj.hash
+      
+      if (fragment) {
+        console.log('[SimpleAuth] Fragment found:', fragment)
+        
+        // フラグメントからトークン情報を手動で抽出
+        const params = new URLSearchParams(fragment.slice(1))
+        const accessToken = params.get('access_token')
+        const refreshToken = params.get('refresh_token')
+        
+        if (accessToken && refreshToken) {
+          console.log('[SimpleAuth] Tokens found, setting session...')
+          
+          // Supabaseにセッションを設定
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          })
+          
+          if (error) {
+            console.error('[SimpleAuth] Error setting session:', error)
+            throw error
+          }
+          
+          if (data.session && data.session.user) {
+            console.log('[SimpleAuth] OAuth callback successful:', data.session.user.email)
+            this.updateState({
+              user: { 
+                id: data.session.user.id, 
+                email: data.session.user.email || '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              },
+              loading: false,
+              error: null
+            })
+            return
+          }
+        }
+      }
+      
+      // トークンが見つからない場合やセッション設定に失敗した場合はポーリングにフォールバック
+      console.log('[SimpleAuth] No tokens found or session setup failed, starting polling...')
+      this.startElectronAuthPolling()
+      
+    } catch (error) {
+      console.error('[SimpleAuth] Error processing OAuth callback:', error)
+      
+      // エラーの場合もポーリングを試行
+      console.log('[SimpleAuth] Fallback to polling...')
+      this.startElectronAuthPolling()
+    }
   }
 
   async signOut() {
