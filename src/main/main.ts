@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'path';
 import { DatabaseManager } from './database';
 import { JQuantsClient } from './jquants-client';
@@ -19,6 +19,7 @@ class StockChartApp {
 
   private initializeApp() {
     app.whenReady().then(() => {
+      Menu.setApplicationMenu(null);
       this.createMainWindow();
       this.setupIpcHandlers();
     });

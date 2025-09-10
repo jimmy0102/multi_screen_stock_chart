@@ -124,7 +124,9 @@ const TickerController: React.FC<TickerControllerProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input-inline"
             />
-            <button type="submit" className="search-button-inline">🔍</button>
+            <button type="submit" className="search-button-inline">
+              <i className="fas fa-search"></i>
+            </button>
           </form>
         )}
         
@@ -187,7 +189,7 @@ const TickerController: React.FC<TickerControllerProps> = ({
           <button
             className={`control-button filter-button`}
             onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-            title={`フィルター: ${currentFilter === 'all' ? '全銘柄' : currentFilter === 'bronze' ? '銅のみ' : currentFilter === 'silver' ? '銀のみ' : '金のみ'}`}
+            title={`フィルター: ${currentFilter === 'all' ? 'すべて' : currentFilter === 'bronze' ? '銅のみ' : currentFilter === 'silver' ? '銀のみ' : '金のみ'}`}
             style={{
               backgroundColor: '#fff',
               borderColor: '#dee2e6',
@@ -217,7 +219,7 @@ const TickerController: React.FC<TickerControllerProps> = ({
                   <i className={`fas ${item.icon}`} 
                      style={{ color: item.color, marginRight: '6px', fontSize: '14px' }}></i>
                   <span style={{ fontSize: '12px' }}>
-                    {item.filter === 'all' ? '全て' : 'マークのみ'}
+                    {item.filter === 'all' ? 'すべて' : 'のみ'}
                   </span>
                 </button>
               ))}

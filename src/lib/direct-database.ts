@@ -79,22 +79,9 @@ class DirectSupabaseDatabase {
     } catch (error) {
       console.error('[DirectDB] getAllTickers failed:', error)
       
-      // Fallback to static data only if direct HTTP also fails
-      console.log('[DirectDB] Using static ticker data as fallback')
-      const { staticTickers } = await import('./static-tickers')
-      console.log(`[DirectDB] Fallback: ${staticTickers.length} static tickers loaded`)
-      
-      // Transform static data to match TickerMaster interface
-      return staticTickers.map(ticker => ({
-        id: ticker.symbol,
-        symbol: ticker.symbol,
-        name: ticker.name,
-        company_name: ticker.company_name,
-        market: ticker.market,
-        sector: ticker.sector,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }))
+      // No fallback data available
+      console.log('[DirectDB] No ticker data available')
+      return []
     }
   }
 

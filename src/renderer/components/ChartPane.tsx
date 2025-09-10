@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, IPriceLine } from 'lightweight-charts';
-import { TimeFrame, ChartOptions } from '../types';
+import { TimeFrame } from '../types';
 import { getChartColors } from '../config/chartColors';
 import { database } from '../../lib/database';
 
@@ -68,7 +68,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chartOptions: ChartOptions = {
+    const chartOptions = {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
       layout: {
@@ -90,6 +90,9 @@ const ChartPane: React.FC<ChartPaneProps> = ({
       },
       rightPriceScale: {
         borderColor: '#e0e0e0'
+      } as any,
+      localization: {
+        priceFormatter: (price: number) => Math.round(price).toString()
       },
       timeScale: {
         borderColor: '#e0e0e0',
@@ -195,10 +198,10 @@ const ChartPane: React.FC<ChartPaneProps> = ({
           .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
           .map((data: any) => ({
             time: Math.floor(new Date(data.date).getTime() / 1000) as any,
-            open: data.open,
-            high: data.high,
-            low: data.low,
-            close: data.close
+            open: Math.round(data.open),
+            high: Math.round(data.high),
+            low: Math.round(data.low),
+            close: Math.round(data.close)
           }))
           .filter((data, index, array) => 
             index === 0 || data.time !== array[index - 1].time

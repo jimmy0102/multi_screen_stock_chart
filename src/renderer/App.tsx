@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { TimeFrame, AppState, WatchlistLevel, FilterState } from './types';
 import ChartPane from './components/ChartPane';
 import TickerController from './components/TickerController';
+import TickerList from './components/TickerList';
 import NoteDrawer from './components/NoteDrawer';
 import LoginScreen from './components/LoginScreen';
 import PWAInstaller from './components/PWAInstaller';
@@ -15,7 +16,7 @@ import './App.css';
 // 新しいチャートレイアウト設定
 const chartLayouts = [
   { position: 'top-left', timeFrame: '1D' as TimeFrame, title: '日足' },
-  { position: 'top-right', timeFrame: null, title: '' }, // 右上は空
+  { position: 'top-right', timeFrame: null, title: '銘柄一覧' }, // 右上に銘柄リスト
   { position: 'bottom-left', timeFrame: '1W' as TimeFrame, title: '週足' },
   { position: 'bottom-right', timeFrame: '1M' as TimeFrame, title: '月足' }
 ];
@@ -351,6 +352,18 @@ const App: React.FC = () => {
     }
   };
 
+  // 銘柄リストからの直接選択
+  const handleTickerSelect = (selectedSymbol: string) => {
+    const tickerIndex = appState.tickers.findIndex(ticker => ticker.symbol === selectedSymbol);
+    if (tickerIndex !== -1) {
+      setAppState(prev => ({
+        ...prev,
+        currentIndex: tickerIndex,
+        currentTicker: selectedSymbol
+      }));
+    }
+  };
+
   // キーボードショートカット設定
   useKeyboardShortcuts({
     // 銘柄ナビゲーション
@@ -601,9 +614,17 @@ const App: React.FC = () => {
               horizontalLineUpdate={horizontalLineUpdate}
             />
           ) : (
-            <div key={layout.position} className="chart-pane empty-pane">
-              <div className="empty-pane-content">
-                {/* 右上は空のペイン */}
+            <div key={layout.position} className="chart-pane">
+              <div className="chart-header">
+                <span className="chart-title">{layout.title}</span>
+              </div>
+              <div className="chart-container">
+                <TickerList
+                  tickers={getFilteredTickers()}
+                  currentTicker={appState.currentTicker}
+                  watchlistLevels={appState.watchlistLevels}
+                  onTickerSelect={handleTickerSelect}
+                />
               </div>
             </div>
           )
