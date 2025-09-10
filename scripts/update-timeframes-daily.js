@@ -110,45 +110,72 @@ async function main() {
   const lastWeekRecords = []
   const lastMonthRecords = []
   
-  // 各銘柄の週足・月足を計算（バッチで保存するため）
-  for (let i = 0; i < updatedTickers.length; i++) {
-    const ticker = updatedTickers[i]
+  // 効率化: バッチサイズを小さくして段階的に処理
+  const BATCH_SIZE = 100
+  const totalBatches = Math.ceil(updatedTickers.length / BATCH_SIZE)
+  
+  console.log(`📦 Processing in ${totalBatches} batches of ${BATCH_SIZE} tickers each`)
+  
+  // バッチごとに処理
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const startIndex = batchIndex * BATCH_SIZE
+    const endIndex = Math.min(startIndex + BATCH_SIZE, updatedTickers.length)
+    const batchTickers = updatedTickers.slice(startIndex, endIndex)
     
-    if ((i + 1) % 100 === 0 || i === 0) {
-      console.log(`[${i + 1}/${updatedTickers.length}] Calculating ${ticker}...`)
-    }
+    console.log(`\n📦 Processing batch ${batchIndex + 1}/${totalBatches} (${batchTickers.length} tickers)...`)
     
-    // 1. 現在期間の計算（毎日実行）
-    const weeklyData = await updater.calculateWeeklyData(ticker, currentWeekStart)
-    if (weeklyData) {
-      weeklyRecords.push(weeklyData)
-    }
-    
-    const monthlyData = await updater.calculateMonthlyData(ticker, currentMonthStart)
-    if (monthlyData) {
-      monthlyRecords.push(monthlyData)
-    }
-    
-    // 2. 完了期間の計算（特定の日のみ実行）
-    if (isWeekFinalized) {
-      const lastWeekStart = dateUtils.getLastWeekStart()
-      const lastWeekData = await updater.calculateWeeklyData(ticker, lastWeekStart)
-      if (lastWeekData) {
-        lastWeekRecords.push(lastWeekData)
+    // バッチ内の各銘柄を処理
+    for (let i = 0; i < batchTickers.length; i++) {
+      const ticker = batchTickers[i]
+      
+      if (i === 0) {
+        console.log(`[${startIndex + i + 1}/${updatedTickers.length}] Calculating ${ticker}...`)
+      }
+      
+      // 1. 現在期間の計算（毎日実行）
+      const weeklyData = await updater.calculateWeeklyData(ticker, currentWeekStart)
+      if (weeklyData) {
+        weeklyRecords.push(weeklyData)
+      }
+      
+      const monthlyData = await updater.calculateMonthlyData(ticker, currentMonthStart)
+      if (monthlyData) {
+        monthlyRecords.push(monthlyData)
+      }
+      
+      // 2. 完了期間の計算（特定の日のみ実行）
+      if (isWeekFinalized) {
+        const lastWeekStart = dateUtils.getLastWeekStart()
+        const lastWeekData = await updater.calculateWeeklyData(ticker, lastWeekStart)
+        if (lastWeekData) {
+          lastWeekRecords.push(lastWeekData)
+        }
+      }
+      
+      if (isMonthFinalized) {
+        const lastMonthStart = dateUtils.getLastMonthStart()
+        const lastMonthData = await updater.calculateMonthlyData(ticker, lastMonthStart)
+        if (lastMonthData) {
+          lastMonthRecords.push(lastMonthData)
+        }
       }
     }
     
-    if (isMonthFinalized) {
-      const lastMonthStart = dateUtils.getLastMonthStart()
-      const lastMonthData = await updater.calculateMonthlyData(ticker, lastMonthStart)
-      if (lastMonthData) {
-        lastMonthRecords.push(lastMonthData)
-      }
+    console.log(`✅ Batch ${batchIndex + 1}/${totalBatches} completed`)
+    
+    // バッチごとに中間保存（メモリ効率とエラー回復性の向上）
+    if (weeklyRecords.length >= BATCH_SIZE * 2) {
+      console.log(`💾 Saving intermediate weekly batch: ${weeklyRecords.length} records`)
+      await supabase.saveStockData(weeklyRecords)
+      weeklyUpdated += weeklyRecords.length
+      weeklyRecords.length = 0 // 配列をクリア
     }
     
-    // 進捗表示
-    if ((i + 1) % 100 === 0) {
-      console.log(`📊 Progress: ${i + 1}/${updatedTickers.length} tickers calculated`)
+    if (monthlyRecords.length >= BATCH_SIZE * 2) {
+      console.log(`💾 Saving intermediate monthly batch: ${monthlyRecords.length} records`)
+      await supabase.saveStockData(monthlyRecords)
+      monthlyUpdated += monthlyRecords.length
+      monthlyRecords.length = 0 // 配列をクリア
     }
   }
   
