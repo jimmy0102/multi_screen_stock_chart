@@ -74,6 +74,9 @@
       "package.json",
       "data/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
     "extraResources": [
       {
         "from": "data",
@@ -110,6 +113,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "MultiScreenStockChart",
+      "unicode": true,
+      "warningsAsErrors": false,
+      "packElevateHelper": false,
+      "differentialPackage": false,
       "artifactName": "${productName}-${version}-win-${arch}-setup.${ext}"
     },
     "portable": {
