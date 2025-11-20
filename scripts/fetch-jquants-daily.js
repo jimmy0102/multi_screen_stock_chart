@@ -73,38 +73,8 @@ async function main() {
     if (success) {
       console.log('🎉 Data fetch completed successfully!')
       console.log(`📊 Total records processed: ${allStockData.length}`)
-      
-      // 7. 週足・月足データの更新
-      console.log('\n🔄 Updating weekly and monthly timeframes...')
-      try {
-        const { spawn } = require('child_process')
-        const updateProcess = spawn('node', ['scripts/update-timeframes-daily.js'], {
-          stdio: 'inherit',
-          cwd: process.cwd()
-        })
-        
-        await new Promise((resolve, reject) => {
-          updateProcess.on('close', (code) => {
-            if (code === 0) {
-              console.log('✅ Timeframe update completed successfully!')
-              resolve()
-            } else {
-              console.error(`❌ Timeframe update failed with code ${code}`)
-              reject(new Error(`Timeframe update failed with code ${code}`))
-            }
-          })
-          
-          updateProcess.on('error', (error) => {
-            console.error('❌ Failed to start timeframe update:', error)
-            reject(error)
-          })
-        })
-      } catch (error) {
-        console.error('❌ Timeframe update error:', error.message)
-        // エラーでも日次更新は成功とみなす
-      }
-      
-      // 8. データヘルスチェック
+
+      // 7. データヘルスチェック
       console.log('\n🔍 Performing data health check...')
       try {
         // 0価格データのチェック

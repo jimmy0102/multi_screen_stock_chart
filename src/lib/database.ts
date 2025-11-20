@@ -6,6 +6,8 @@ import type {
   ChartDrawing, 
   Note 
 } from './supabase'
+import type { HorizontalLineSettings } from './types'
+export type { HorizontalLineSettings } from './types'
 
 export class SupabaseDatabase {
   // 銘柄関連
@@ -70,21 +72,41 @@ export class SupabaseDatabase {
   }
 
   // チャート描画関連
-  async getChartDrawings(ticker: string, timeframe: string): Promise<ChartDrawing[]> {
-    return await directDatabase.getChartDrawings(ticker, timeframe)
+  async getChartDrawings(ticker: string, timeframe: string, userId?: string): Promise<ChartDrawing[]> {
+    return await directDatabase.getChartDrawings(ticker, timeframe, userId)
   }
 
   async saveChartDrawing(
     ticker: string,
     timeframe: string,
     type: string,
-    data: Record<string, any>
+    data: Record<string, any>,
+    userId?: string
   ): Promise<ChartDrawing | null> {
-    return await directDatabase.saveChartDrawing(ticker, timeframe, type, data)
+    return await directDatabase.saveChartDrawing(ticker, timeframe, type, data, userId)
   }
 
-  async deleteChartDrawing(id: string): Promise<boolean> {
-    return await directDatabase.deleteChartDrawing(id)
+  async updateChartDrawing(
+    id: string,
+    data: Partial<Record<'price' | 'color' | 'width', any>>,
+    userId?: string
+  ): Promise<ChartDrawing | null> {
+    return await directDatabase.updateChartDrawing(id, data, userId)
+  }
+
+  async deleteChartDrawing(id: string, userId?: string): Promise<boolean> {
+    return await directDatabase.deleteChartDrawing(id, userId)
+  }
+
+  async getHorizontalLineSettings(userId?: string): Promise<HorizontalLineSettings> {
+    return await directDatabase.getHorizontalLineSettings(userId)
+  }
+
+  async saveHorizontalLineSettings(
+    userId: string | undefined,
+    settings: HorizontalLineSettings
+  ): Promise<HorizontalLineSettings> {
+    return await directDatabase.saveHorizontalLineSettings(userId, settings)
   }
 
   // リアルタイム購読

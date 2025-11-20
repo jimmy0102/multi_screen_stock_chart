@@ -188,17 +188,26 @@ class SimpleAuthService {
   }
 
   async signInWithGoogle() {
-    // Electronアプリかどうかを判定
-    const isElectron = window.navigator.userAgent.includes('Electron')
+    // Electronアプリかどうかを判定（複数の方法で確認）
+    const isElectron = (
+      window.navigator.userAgent.includes('Electron') ||
+      (window as any).electronAPI ||
+      (window as any).require ||
+      window.location.protocol === 'file:'
+    )
     console.log('[SimpleAuth] signInWithGoogle - isElectron:', isElectron)
+    console.log('[SimpleAuth] User agent:', window.navigator.userAgent)
+    console.log('[SimpleAuth] Location:', window.location.href)
     
     if (isElectron) {
+      console.log('[SimpleAuth] Electron environment detected - using external browser flow')
+      
       // Electronの場合は手動でOAuth URLを取得して外部ブラウザで開く
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // カスタムプロトコルを使用してアプリに戻る
-          redirectTo: 'multiscreenstockchart://auth/callback',
+          // 外部ブラウザでの認証完了後、ユーザーが手動でアプリに戻る
+          redirectTo: 'https://yuzgwwnecgvulsrqbxng.supabase.co/auth/v1/callback',
           skipBrowserRedirect: true
         }
       })
@@ -216,9 +225,10 @@ class SimpleAuthService {
         console.log('[SimpleAuth] Opening OAuth URL in external browser...')
         
         // 外部ブラウザでOAuth URLを開く
+        // Windowsでも確実に動作するようwindow.openを使用
         window.open(data.url, '_blank')
         
-        // セッション確認を開始
+        // セッション確認を開始（即座に開始）
         this.startElectronAuthPolling()
       } else {
         throw new Error('OAuth URL not generated')
@@ -226,11 +236,13 @@ class SimpleAuthService {
       
       return data
     } else {
+      console.log('[SimpleAuth] Browser environment detected - using standard flow')
+      
       // ブラウザの場合は通常のフロー
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: `${window.location.origin}${window.location.pathname}`
         }
       })
       
@@ -243,14 +255,14 @@ class SimpleAuthService {
     console.log('[SimpleAuth] Starting Electron auth polling...')
     
     let pollCount = 0
-    const maxPolls = 30 // 最大30回（3分間）
+    const maxPolls = 90 // 最大90回（3分間、2秒間隔）
     
     const pollInterval = setInterval(async () => {
       pollCount++
       console.log(`[SimpleAuth] Polling session... (${pollCount}/${maxPolls})`)
       
       try {
-        const { data: { session }, error } = await supabase.auth.getSession()
+        const { data: { session } } = await supabase.auth.getSession()
         
         if (session && session.user) {
           console.log('[SimpleAuth] Session found during polling!', session.user.email)
@@ -290,7 +302,7 @@ class SimpleAuthService {
           })
         }
       }
-    }, 6000) // 6秒ごとにチェック
+    }, 2000) // 2秒ごとにチェック（より早く認証を検知）
   }
 
   private async handleOAuthCallback(url: string) {

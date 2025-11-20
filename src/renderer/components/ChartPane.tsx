@@ -3,6 +3,7 @@ import { createChart, IChartApi, ISeriesApi, CandlestickData, IPriceLine } from 
 import { TimeFrame } from '../types';
 import { getChartColors } from '../config/chartColors';
 import { database } from '../../lib/database';
+import type { HorizontalLineSettings } from '../../lib/types';
 
 interface ChartPaneProps {
   ticker: string;
@@ -16,12 +17,16 @@ interface ChartPaneProps {
   horizontalLineMode?: boolean;
   onHorizontalLineAdded?: () => void;
   horizontalLineUpdate?: number; // 更新トリガー
+  lineSettings: HorizontalLineSettings;
+  userId?: string;
+  onToggleHorizontalMode: () => void;
 }
 
 interface HorizontalLine {
   id: string;
   price: number;
   color: string;
+  width: number;
   priceLine?: IPriceLine;
 }
 
@@ -36,7 +41,10 @@ const ChartPane: React.FC<ChartPaneProps> = ({
   sourceChart,
   horizontalLineMode = false,
   onHorizontalLineAdded,
-  horizontalLineUpdate = 0
+  horizontalLineUpdate = 0,
+  lineSettings,
+  userId,
+  onToggleHorizontalMode
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -44,25 +52,289 @@ const ChartPane: React.FC<ChartPaneProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [horizontalLines, setHorizontalLines] = useState<HorizontalLine[]>([]);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [pendingLinePrice, setPendingLinePrice] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lineId?: string } | null>(null);
-  
+  const [lineEditorState, setLineEditorState] = useState<{ open: boolean; lineId: string | null }>({ open: false, lineId: null });
+  const [editorColor, setEditorColor] = useState(lineSettings.color);
+  const [editorWidth, setEditorWidth] = useState(lineSettings.width);
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [handleY, setHandleY] = useState<number | null>(null);
+
+  const draggingLineRef = useRef<{ lineId: string; offset: number } | null>(null);
+  const horizontalLinesRef = useRef<HorizontalLine[]>([]);
+  const dragHappenedRef = useRef(false);
+  const doubleClickRef = useRef(false);
+
+  const updateHandlePosition = useCallback(() => {
+    if (!selectedLineId || !seriesRef.current) {
+      setHandleY(null);
+      return;
+    }
+
+    const line = horizontalLinesRef.current.find(l => l.id === selectedLineId);
+    if (!line) {
+      setSelectedLineId(null);
+      setHandleY(null);
+      return;
+    }
+
+    const coord = seriesRef.current.priceToCoordinate(line.price);
+    if (coord === null || coord === undefined) {
+      setHandleY(null);
+      return;
+    }
+
+    setHandleY(coord);
+  }, [selectedLineId]);
+
+  useEffect(() => {
+    horizontalLinesRef.current = horizontalLines;
+    updateHandlePosition();
+  }, [horizontalLines, updateHandlePosition]);
+
+  useEffect(() => {
+    setEditorColor(lineSettings.color);
+    setEditorWidth(lineSettings.width);
+  }, [lineSettings.color, lineSettings.width]);
+
+  useEffect(() => {
+    updateHandlePosition();
+  }, [selectedLineId, updateHandlePosition]);
+
+  useEffect(() => {
+    setSelectedLineId(null);
+    setHandleY(null);
+  }, [ticker]);
+
+  const clearHorizontalLines = useCallback(() => {
+    setHorizontalLines(prevLines => {
+      prevLines.forEach(line => {
+        if (line.priceLine && seriesRef.current) {
+          try {
+            seriesRef.current.removePriceLine(line.priceLine);
+          } catch (error) {
+            console.warn('Failed to remove price line during cleanup:', error);
+          }
+        }
+      });
+      horizontalLinesRef.current = [];
+      setHandleY(null);
+      return [];
+    });
+  }, []);
+
   // 水平線設定の取得
-  const lineWidth = parseInt((import.meta as any).env.VITE_HORIZONTAL_LINE_WIDTH || '3');
   const lineOpacity = parseFloat((import.meta as any).env.VITE_HORIZONTAL_LINE_OPACITY || '0.8');
   const lineStyle = (import.meta as any).env.VITE_HORIZONTAL_LINE_STYLE || 'solid';
   
   // プリセットカラー
   const HORIZONTAL_LINE_COLORS = [
     { name: 'レジスタンス（強）', color: '#FF0000' },
-    { name: 'レジスタンス（弱）', color: '#FF9999' },
-    { name: 'サポート（強）', color: '#0000FF' },
-    { name: 'サポート（弱）', color: '#9999FF' },
-    { name: '中立ライン', color: '#FFD700' },
-    { name: '注目ライン', color: '#00FF00' },
+    { name: 'レジスタンス（弱）', color: '#FF7F7F' },
+    { name: 'リスク注意', color: '#FF6F61' },
+    { name: 'サポート（強）', color: '#0055FF' },
+    { name: 'サポート（弱）', color: '#5DA9FF' },
+    { name: 'トレンドライン', color: '#6A5ACD' },
+    { name: '注目ライン', color: '#00B894' },
+    { name: 'ブレイク候補', color: '#F39C12' },
+    { name: '押し目ライン', color: '#2ECC71' },
+    { name: '戻り売りライン', color: '#E84393' },
+    { name: '監視ライン', color: '#6C757D' },
     { name: 'カスタム', color: '#808080' }
   ];
+
+  useEffect(() => {
+    const styleCode = lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0;
+    horizontalLinesRef.current.forEach(line => {
+      if (!line.priceLine) return;
+      line.priceLine.applyOptions({
+        color: line.color,
+        lineWidth: (line.id === selectedLineId ? line.width + 1 : line.width) as any,
+        lineStyle: styleCode,
+        axisLabelVisible: true
+      });
+    });
+  }, [horizontalLines, selectedLineId, lineStyle]);
+
+  const addHorizontalLine = useCallback(async (price: number) => {
+    if (!seriesRef.current) {
+      return;
+    }
+
+    try {
+      const drawing = await database.saveChartDrawing(
+        ticker,
+        timeFrame,
+        'horizontal_line',
+        {
+          price,
+          color: lineSettings.color,
+          width: lineSettings.width
+        },
+        userId
+      );
+
+      if (drawing && seriesRef.current) {
+        const styleCode = lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0;
+        const priceLine = seriesRef.current.createPriceLine({
+          price,
+          color: lineSettings.color,
+          lineWidth: lineSettings.width as any,
+          lineStyle: styleCode,
+          axisLabelVisible: true,
+          title: ''
+        });
+
+        setHorizontalLines(prev => [...prev, {
+          id: drawing.id,
+          price,
+          color: lineSettings.color,
+          width: lineSettings.width,
+          priceLine
+        }]);
+
+        setSelectedLineId(drawing.id);
+        const coord = seriesRef.current.priceToCoordinate(price);
+        setHandleY(coord ?? null);
+        chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+        chartRef.current?.timeScale().fitContent();
+        onHorizontalLineAdded?.();
+      }
+    } catch (error) {
+      console.error('[ChartPane] Failed to create horizontal line:', error);
+    }
+  }, [ticker, timeFrame, lineSettings.color, lineSettings.width, userId, lineStyle, onHorizontalLineAdded]);
+
+const findLineNearCoordinate = useCallback((coordinateY: number) => {
+  if (!seriesRef.current) {
+    return null;
+  }
+
+  const tolerance = 6;
+  for (const line of horizontalLinesRef.current) {
+    const lineCoordinate = seriesRef.current.priceToCoordinate(line.price);
+    if (lineCoordinate === null || lineCoordinate === undefined) {
+      continue;
+    }
+    if (Math.abs(lineCoordinate - coordinateY) <= tolerance) {
+      return line;
+    }
+  }
+
+  return null;
+}, []);
+
+  const startDrag = useCallback((lineId: string, chartY: number) => {
+    if (!seriesRef.current) {
+      return;
+    }
+
+    const pointerPrice = seriesRef.current.coordinateToPrice(chartY);
+    if (pointerPrice === null || pointerPrice === undefined) {
+      return;
+    }
+
+    const line = horizontalLinesRef.current.find(l => l.id === lineId);
+    if (!line) {
+      return;
+    }
+
+    draggingLineRef.current = {
+      lineId,
+      offset: line.price - pointerPrice
+    };
+
+    dragHappenedRef.current = false;
+    document.body.style.cursor = 'ns-resize';
+  }, []);
+
+  const handleMouseDownOnChart = useCallback((event: MouseEvent) => {
+    if (!chartContainerRef.current || !seriesRef.current || lineEditorState.open) {
+      return;
+    }
+
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const targetLine = findLineNearCoordinate(y);
+
+    if (!targetLine) {
+      setSelectedLineId(null);
+      setHandleY(null);
+      return;
+    }
+
+    if (selectedLineId !== targetLine.id) {
+      setSelectedLineId(targetLine.id);
+      const coord = seriesRef.current.priceToCoordinate(targetLine.price);
+      setHandleY(coord ?? null);
+      event.preventDefault();
+      return;
+    }
+
+    startDrag(targetLine.id, y);
+    event.preventDefault();
+  }, [findLineNearCoordinate, lineEditorState.open, selectedLineId, startDrag]);
+
+  const handleMouseMove = useCallback((event: MouseEvent) => {
+    const drag = draggingLineRef.current;
+    if (!drag || !chartContainerRef.current || !seriesRef.current) {
+      return;
+    }
+
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const pointerPrice = seriesRef.current.coordinateToPrice(y);
+
+    if (pointerPrice === null || pointerPrice === undefined) {
+      return;
+    }
+
+    const newPrice = pointerPrice + drag.offset;
+
+    setHorizontalLines(prev => {
+      const updated = prev.map(line => {
+        if (line.id !== drag.lineId) return line;
+
+        if (line.priceLine) {
+          line.priceLine.applyOptions({ price: newPrice });
+        }
+
+        return { ...line, price: newPrice };
+      });
+
+      horizontalLinesRef.current = updated;
+      return updated;
+    });
+    dragHappenedRef.current = true;
+    const coord = seriesRef.current.priceToCoordinate(newPrice);
+    setHandleY(coord ?? null);
+  }, []);
+
+  const handleMouseUp = useCallback(async () => {
+    const drag = draggingLineRef.current;
+    if (!drag) {
+      return;
+    }
+
+    draggingLineRef.current = null;
+    document.body.style.cursor = 'default';
+
+    const targetLine = horizontalLinesRef.current.find(line => line.id === drag.lineId);
+    if (!targetLine) {
+      dragHappenedRef.current = false;
+      return;
+    }
+
+    try {
+      await database.updateChartDrawing(drag.lineId, { price: targetLine.price }, userId);
+      onHorizontalLineAdded?.();
+    } catch (error) {
+      console.error('[ChartPane] Failed to persist dragged horizontal line:', error);
+    }
+    chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+    chartRef.current?.timeScale().fitContent();
+    updateHandlePosition();
+    dragHappenedRef.current = false;
+  }, [onHorizontalLineAdded, userId, updateHandlePosition]);
 
   // チャートの初期化
   useEffect(() => {
@@ -125,6 +397,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight
         });
+        updateHandlePosition();
       }
     };
 
@@ -156,7 +429,7 @@ const ChartPane: React.FC<ChartPaneProps> = ({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [onCrosshairMove, title]);
+  }, [onCrosshairMove, title, updateHandlePosition]);
 
   // データの読み込みと更新
   useEffect(() => {
@@ -177,9 +450,6 @@ const ChartPane: React.FC<ChartPaneProps> = ({
         
         // Supabaseから実際のデータを取得
         console.log('[ChartPane] Fetching real data from Supabase for:', ticker, timeFrame);
-        
-        // database からデータを取得
-        const { database } = await import('../../lib/database');
         const stockData = await database.getStockData(ticker, timeFrame, limit);
         
         // データが取得できない場合はエラー表示
@@ -214,29 +484,24 @@ const ChartPane: React.FC<ChartPaneProps> = ({
         if (chartRef.current && chartData.length > 0) {
           const visibleBars = 100;
           const lastIndex = chartData.length - 1;
-          
+
           if (chartData.length > visibleBars) {
             const firstVisibleIndex = Math.max(0, lastIndex - visibleBars + 1);
             chartRef.current.timeScale().setVisibleRange({
               from: chartData[firstVisibleIndex].time as any,
               to: chartData[lastIndex].time as any
             });
-            
-            // 右側に少し余白を追加
+
             setTimeout(() => {
               if (chartRef.current) {
-                const paddedFirstIndex = Math.max(0, lastIndex - visibleBars - 5);
-                const paddedTo = chartData[Math.min(lastIndex, lastIndex + 5)]?.time || chartData[lastIndex].time;
-                
-                chartRef.current.timeScale().setVisibleRange({
-                  from: chartData[paddedFirstIndex].time as any,
-                  to: paddedTo as any
-                });
+                chartRef.current.timeScale().fitContent();
               }
-            }, 100);
+            }, 0);
           } else {
             chartRef.current.timeScale().fitContent();
           }
+
+          chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
         }
       } catch (err) {
         console.error('Failed to load stock data:', err);
@@ -277,137 +542,275 @@ const ChartPane: React.FC<ChartPaneProps> = ({
     }
   }, [syncedPrice, syncedTime, sourceChart, title]);
 
-  // 水平線の初期化フラグ
-  const horizontalLinesLoadedRef = useRef<string>('');
-
   // 水平線を読み込む
   useEffect(() => {
-    const loadHorizontalLines = async () => {
-      const currentKey = `${ticker}-${timeFrame}`;
-      
-      // 既に同じキーで読み込み済みの場合はスキップ（重複防止）
-      if (horizontalLinesLoadedRef.current === currentKey) {
+    if (!ticker || !seriesRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled || !seriesRef.current) {
         return;
       }
-      
-      // 既存の水平線をクリーンアップ
-      setHorizontalLines(prevLines => {
-        prevLines.forEach(line => {
-          if (line.priceLine && seriesRef.current) {
-            try {
-              seriesRef.current.removePriceLine(line.priceLine);
-            } catch (e) {
-              // 既に削除されている場合のエラーを無視
-            }
+
+      clearHorizontalLines();
+
+      try {
+        const drawings = await database.getChartDrawings(ticker, timeFrame, userId);
+        if (cancelled || !seriesRef.current) {
+          return;
+        }
+
+        const uniqueLines: HorizontalLine[] = [];
+        const seenIds = new Set<string>();
+
+        drawings.forEach(d => {
+          if (!d || !d.id || seenIds.has(d.id) || !seriesRef.current) {
+            return;
           }
-        });
-        return [];
-      });
-      
-      const drawings = await database.getChartDrawings(ticker, timeFrame);
-      const newLines: HorizontalLine[] = [];
-      
-      // チャートに水平線を追加
-      drawings.forEach(d => {
-        if (seriesRef.current) {
+
+          seenIds.add(d.id);
+
           try {
+            const priceValue = typeof d.data.price === 'number' ? d.data.price : Number(d.data.price);
+            if (!Number.isFinite(priceValue)) {
+              return;
+            }
+
+            const colorValue = d.data.color || lineSettings.color;
+            const widthValue = Number.isFinite(d.data.width) ? Number(d.data.width) : lineSettings.width;
+
             const priceLine = seriesRef.current.createPriceLine({
-              price: d.data.price,
-              color: d.data.color,
-              lineWidth: lineWidth as any,
+              price: priceValue,
+              color: colorValue,
+              lineWidth: widthValue as any,
               lineStyle: lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0,
               axisLabelVisible: true,
               title: ''
             });
-            
-            newLines.push({
+
+            uniqueLines.push({
               id: d.id,
-              price: d.data.price,
-              color: d.data.color,
+              price: priceValue,
+              color: colorValue,
+              width: widthValue,
               priceLine
             });
-          } catch (e) {
-            console.warn('Failed to create price line:', e);
+          } catch (error) {
+            console.warn('Failed to create price line:', error);
           }
-        }
-      });
-      
-      setHorizontalLines(newLines);
-      horizontalLinesLoadedRef.current = currentKey;
-    };
+        });
 
-    if (ticker && seriesRef.current) {
-      // 少し遅延を入れてチャートの準備を待つ
-      setTimeout(() => {
-        loadHorizontalLines();
-      }, 100);
+        if (!cancelled) {
+          setHorizontalLines(uniqueLines);
+          chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+        }
+      } catch (error) {
+        console.error('Failed to load horizontal lines:', error);
+      }
+    }, 100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [ticker, timeFrame, userId, lineSettings.color, lineSettings.width, lineStyle, horizontalLineUpdate, clearHorizontalLines]);
+
+  useEffect(() => {
+    const container = chartContainerRef.current;
+    if (!container) {
+      return;
     }
-  }, [ticker, timeFrame, lineWidth, lineStyle, horizontalLineUpdate]);
+
+    const handleMouseDownListener = (event: MouseEvent) => handleMouseDownOnChart(event);
+    const handleMouseMoveListener = (event: MouseEvent) => handleMouseMove(event);
+    const handleMouseUpListener = () => handleMouseUp();
+
+    container.addEventListener('mousedown', handleMouseDownListener);
+    window.addEventListener('mousemove', handleMouseMoveListener);
+    window.addEventListener('mouseup', handleMouseUpListener);
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDownListener);
+      window.removeEventListener('mousemove', handleMouseMoveListener);
+      window.removeEventListener('mouseup', handleMouseUpListener);
+      document.body.style.cursor = 'default';
+      draggingLineRef.current = null;
+    };
+  }, [handleMouseDownOnChart, handleMouseMove, handleMouseUp]);
+
+  useEffect(() => {
+    return () => {
+      clearHorizontalLines();
+    };
+  }, [clearHorizontalLines]);
 
   // チャートクリック時の処理
-  const handleChartClick = useCallback((param: any) => {
-    if (horizontalLineMode && param.point) {
-      const price = seriesRef.current?.coordinateToPrice(param.point.y);
-      if (price !== null && price !== undefined) {
-        setPendingLinePrice(price);
-        setShowColorPicker(true);
-      }
+  const handleChartClick = useCallback(async (param: any) => {
+    if (!param.point || !seriesRef.current) {
+      return;
     }
-  }, [horizontalLineMode]);
+
+    if (doubleClickRef.current) {
+      return;
+    }
+
+    if (dragHappenedRef.current) {
+      dragHappenedRef.current = false;
+      return;
+    }
+
+    if (!horizontalLineMode) {
+      const line = findLineNearCoordinate(param.point.y);
+      if (line) {
+        setSelectedLineId(line.id);
+        const coord = seriesRef.current.priceToCoordinate(line.price);
+        setHandleY(coord ?? null);
+      } else {
+        setSelectedLineId(null);
+        setHandleY(null);
+      }
+      return;
+    }
+
+    const price = seriesRef.current.coordinateToPrice(param.point.y);
+    if (price === null || price === undefined) {
+      return;
+    }
+
+    await addHorizontalLine(price);
+  }, [horizontalLineMode, findLineNearCoordinate, addHorizontalLine]);
 
   // 色選択後の処理
-  const handleColorSelect = useCallback(async (color: string) => {
-    if (pendingLinePrice !== null && seriesRef.current) {
-      // データベースに保存
-      const drawing = await database.saveChartDrawing(
-        ticker,
-        timeFrame,
-        'horizontal_line',
-        { price: pendingLinePrice, color, width: lineWidth }
-      );
-      
-      if (drawing) {
-        // チャートに表示
-        const priceLine = seriesRef.current.createPriceLine({
-          price: pendingLinePrice,
-          color: color,
-          lineWidth: lineWidth as any,
-          lineStyle: lineStyle === 'dashed' ? 2 : lineStyle === 'dotted' ? 3 : 0,
-          axisLabelVisible: true,
-          title: ''
-        });
-        
-        setHorizontalLines(prev => [...prev, {
-          id: drawing.id,
-          price: pendingLinePrice,
-          color: color,
-          priceLine
-        }]);
-      }
+  const handleColorSelect = useCallback((color: string) => {
+    setEditorColor(color);
+  }, []);
+
+  const handleHandleMouseDown = useCallback((lineId: string) => (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!chartContainerRef.current) {
+      return;
     }
-    
-    setShowColorPicker(false);
-    setPendingLinePrice(null);
-    onHorizontalLineAdded?.();
-  }, [pendingLinePrice, ticker, timeFrame, lineWidth, lineStyle, onHorizontalLineAdded]);
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    setSelectedLineId(lineId);
+    startDrag(lineId, y);
+    setHandleY(y);
+  }, [startDrag]);
+
+  const handleDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!chartContainerRef.current || !seriesRef.current) {
+      return;
+    }
+
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const price = seriesRef.current.coordinateToPrice(y);
+
+    if (price === null || price === undefined) {
+      return;
+    }
+
+    doubleClickRef.current = true;
+    event.preventDefault();
+    addHorizontalLine(price);
+    requestAnimationFrame(() => {
+      doubleClickRef.current = false;
+    });
+  }, [addHorizontalLine]);
+
+  const openLineEditor = useCallback((lineId: string) => {
+    const target = horizontalLinesRef.current.find(line => line.id === lineId);
+    if (!target) {
+      return;
+    }
+
+    setEditorColor(target.color);
+    setEditorWidth(target.width);
+    setLineEditorState({ open: true, lineId });
+    setContextMenu(null);
+  }, []);
+
+  const handleEditorCancel = useCallback(() => {
+    setLineEditorState({ open: false, lineId: null });
+  }, []);
+
+  const handleEditorConfirm = useCallback(async () => {
+    if (!lineEditorState.lineId) {
+      return;
+    }
+
+    setHorizontalLines(prev => {
+      const updated = prev.map(line => {
+        if (line.id !== lineEditorState.lineId) {
+          return line;
+        }
+
+        if (line.priceLine) {
+          line.priceLine.applyOptions({
+            color: editorColor,
+            lineWidth: editorWidth as any
+          });
+        }
+
+        return {
+          ...line,
+          color: editorColor,
+          width: editorWidth
+        };
+      });
+
+      horizontalLinesRef.current = updated;
+      return updated;
+    });
+
+    try {
+      await database.updateChartDrawing(lineEditorState.lineId, {
+        color: editorColor,
+        width: editorWidth
+      }, userId);
+      onHorizontalLineAdded?.();
+    } catch (error) {
+      console.error('[ChartPane] Failed to update horizontal line:', error);
+    }
+
+    setLineEditorState({ open: false, lineId: null });
+    chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+    updateHandlePosition();
+  }, [editorColor, editorWidth, lineEditorState.lineId, onHorizontalLineAdded, userId, updateHandlePosition]);
 
   // 水平線削除処理
   const handleDeleteLine = useCallback(async (lineId: string) => {
-    const success = await database.deleteChartDrawing(lineId);
+    const success = await database.deleteChartDrawing(lineId, userId);
     if (success) {
       setHorizontalLines(prev => {
-        const line = prev.find(l => l.id === lineId);
-        if (line?.priceLine) {
-          seriesRef.current?.removePriceLine(line.priceLine);
-        }
-        return prev.filter(l => l.id !== lineId);
+        const remaining = prev.filter(l => {
+          if (l.id === lineId && l.priceLine) {
+            seriesRef.current?.removePriceLine(l.priceLine);
+          }
+          return l.id !== lineId;
+        });
+        horizontalLinesRef.current = remaining;
+        return remaining;
       });
       
       // 他のチャートも更新（削除の同期）
       onHorizontalLineAdded?.();
+      if (selectedLineId === lineId) {
+        setSelectedLineId(null);
+        setHandleY(null);
+      }
+      chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
     }
     setContextMenu(null);
-  }, [onHorizontalLineAdded]);
+    if (lineEditorState.lineId === lineId) {
+      setLineEditorState({ open: false, lineId: null });
+    }
+  }, [onHorizontalLineAdded, lineEditorState.lineId, userId, selectedLineId]);
 
   // チャート上でクリックイベントを設定
   useEffect(() => {
@@ -433,6 +836,12 @@ const ChartPane: React.FC<ChartPaneProps> = ({
       return false;
     });
     
+    if (clickedLine && seriesRef.current) {
+      setSelectedLineId(clickedLine.id);
+      const coord = seriesRef.current.priceToCoordinate(clickedLine.price);
+      setHandleY(coord ?? null);
+    }
+
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -471,11 +880,38 @@ const ChartPane: React.FC<ChartPaneProps> = ({
             cursor: horizontalLineMode ? 'crosshair' : 'default'
           }}
           onContextMenu={handleContextMenu}
+          onDoubleClick={handleDoubleClick}
         />
+
+        {selectedLineId && handleY !== null && (
+          <div className="hl-handle-layer">
+            <div
+              className="hl-handle hl-handle-left"
+              style={{ top: `${handleY - 6}px` }}
+              onMouseDown={handleHandleMouseDown(selectedLineId)}
+            />
+            <div
+              className="hl-handle hl-handle-center"
+              style={{ top: `${handleY - 6}px` }}
+              onMouseDown={handleHandleMouseDown(selectedLineId)}
+            />
+            <div
+              className="hl-handle hl-handle-right"
+              style={{ top: `${handleY - 6}px` }}
+              onMouseDown={handleHandleMouseDown(selectedLineId)}
+            />
+            <div
+              className="hl-handle-line"
+              style={{ top: `${handleY - 1}px` }}
+            />
+          </div>
+        )}
         
-        {/* 色選択パレット */}
-        {showColorPicker && (
-          <div className="color-picker-overlay" onClick={() => setShowColorPicker(false)}
+        {/* 水平線編集 */}
+        {lineEditorState.open && (
+          <div
+            className="color-picker-overlay"
+            onClick={handleEditorCancel}
             style={{
               position: 'fixed',
               top: 0,
@@ -487,16 +923,21 @@ const ChartPane: React.FC<ChartPaneProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 1000
-            }}>
-            <div className="color-picker-popup" onClick={e => e.stopPropagation()}
+            }}
+          >
+            <div
+              className="color-picker-popup"
+              onClick={e => e.stopPropagation()}
               style={{
                 backgroundColor: 'white',
                 padding: '20px',
                 borderRadius: '8px',
-                boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
-              }}>
-              <h3>水平線の色を選択</h3>
-              <div className="color-options" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                boxShadow: '0 4px 10px rgba(0,0,0,0.3)',
+                minWidth: '280px'
+              }}
+            >
+              <h3 style={{ marginTop: 0 }}>水平線の設定</h3>
+              <div className="color-options" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
                 {HORIZONTAL_LINE_COLORS.map(({ name, color }) => (
                   <div
                     key={color}
@@ -508,12 +949,53 @@ const ChartPane: React.FC<ChartPaneProps> = ({
                       height: '40px',
                       borderRadius: '4px',
                       cursor: 'pointer',
-                      border: '2px solid #ccc',
-                      opacity: lineOpacity
+                      border: editorColor === color ? '3px solid #000' : '2px solid #ccc',
+                      opacity: lineOpacity,
+                      boxSizing: 'border-box'
                     }}
                     title={name}
                   />
                 ))}
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>太さ: {editorWidth}px</label>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  value={editorWidth}
+                  onChange={(e) => setEditorWidth(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  onClick={handleEditorCancel}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    background: '#f8f9fa',
+                    cursor: 'pointer'
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleEditorConfirm}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: '#007bff',
+                    color: '#fff',
+                    cursor: 'pointer'
+                  }}
+                >
+                  適用
+                </button>
               </div>
             </div>
           </div>
@@ -536,20 +1018,36 @@ const ChartPane: React.FC<ChartPaneProps> = ({
             onMouseLeave={() => setContextMenu(null)}
           >
             {contextMenu.lineId ? (
-              <button
-                onClick={() => handleDeleteLine(contextMenu.lineId!)}
-                style={{
-                  display: 'block',
-                  padding: '8px 16px',
-                  border: 'none',
-                  background: 'none',
-                  cursor: 'pointer',
-                  width: '100%',
-                  textAlign: 'left'
-                }}
-              >
-                この水平線を削除
-              </button>
+              <>
+                <button
+                  onClick={() => openLineEditor(contextMenu.lineId!)}
+                  style={{
+                    display: 'block',
+                    padding: '8px 16px',
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    width: '100%',
+                    textAlign: 'left'
+                  }}
+                >
+                  色と太さを変更
+                </button>
+                <button
+                  onClick={() => handleDeleteLine(contextMenu.lineId!)}
+                  style={{
+                    display: 'block',
+                    padding: '8px 16px',
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    width: '100%',
+                    textAlign: 'left'
+                  }}
+                >
+                  この水平線を削除
+                </button>
+              </>
             ) : null}
           </div>
         )}

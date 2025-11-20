@@ -5,17 +5,25 @@
 
 const { DateTime } = require('luxon');
 
+function toJstDateTime(date) {
+  if (date instanceof Date) {
+    return DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' });
+  }
+
+  if (typeof date === 'string') {
+    return DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
+  }
+
+  return DateTime.fromJSDate(new Date(date), { zone: 'Asia/Tokyo' });
+}
+
 /**
  * 任意の日付をJSTのYYYY-MM-DD形式に変換
  * @param {string|Date} date - 変換する日付
  * @returns {string} YYYY-MM-DD形式の日付文字列
  */
 function toJstYmd(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
-  return dt.toFormat('yyyy-LL-dd');
+  return toJstDateTime(date).toFormat('yyyy-LL-dd');
 }
 
 /**
@@ -44,13 +52,6 @@ function isValidBar(record) {
   return true;
 }
 
-/**
- * 現在のJST日付を取得
- * @returns {string} YYYY-MM-DD形式
- */
-function getJstToday() {
-  return DateTime.now().setZone('Asia/Tokyo').toFormat('yyyy-LL-dd');
-}
 
 /**
  * JST基準で昨日の日付を取得
@@ -84,17 +85,25 @@ function getJstCurrentMonthStart() {
     .toFormat('yyyy-LL-dd');
 }
 
+function getJstToday() {
+  return DateTime.now()
+    .setZone('Asia/Tokyo')
+    .toFormat('yyyy-LL-dd');
+}
+
+function isPotentialTradingDay(date) {
+  const dt = toJstDateTime(date);
+  // 土日は除外（1=月曜, 6=土曜, 7=日曜）
+  return dt.weekday >= 1 && dt.weekday <= 5;
+}
+
 /**
  * JST基準で指定日が土曜日かどうかを判定
  * @param {string|Date} date - 判定する日付
  * @returns {boolean} 土曜日かどうか
  */
 function isJstSaturday(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
-  return dt.weekday === 6; // Luxonでは月曜=1, 土曜=6
+  return toJstDateTime(date).weekday === 6; // Luxonでは月曜=1, 土曜=6
 }
 
 /**
@@ -103,11 +112,7 @@ function isJstSaturday(date) {
  * @returns {boolean} 月初かどうか
  */
 function isJstFirstOfMonth(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
-  return dt.day === 1;
+  return toJstDateTime(date).day === 1;
 }
 
 /**
@@ -116,10 +121,7 @@ function isJstFirstOfMonth(date) {
  * @returns {string} YYYY-MM-DD形式
  */
 function getJstWeekStart(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
+  const dt = toJstDateTime(date);
   const sunday = dt.minus({ days: dt.weekday % 7 });
   return sunday.toFormat('yyyy-LL-dd');
 }
@@ -130,29 +132,26 @@ function getJstWeekStart(date) {
  * @returns {string} YYYY-MM-DD形式
  */
 function getJstMonthStart(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
-  return dt.startOf('month').toFormat('yyyy-LL-dd');
+  return toJstDateTime(date).startOf('month').toFormat('yyyy-LL-dd');
 }
 
-/**
- * 取引日かどうかの簡易判定（土日を除外）
- * 本格的には取引カレンダーが必要だが、最低限の実装
- * @param {string|Date} date - 判定する日付
- * @returns {boolean} 取引日の可能性があるか
- */
-function isPotentialTradingDay(date) {
-  const dt = date instanceof Date ? 
-    DateTime.fromJSDate(date, { zone: 'Asia/Tokyo' }) :
-    DateTime.fromISO(date, { zone: 'Asia/Tokyo' });
-  
-  // 土日は除外（1=月曜, 6=土曜, 7=日曜）
-  return dt.weekday >= 1 && dt.weekday <= 5;
+function getJstWeekEndFromStart(weekStart) {
+  return toJstDateTime(weekStart)
+    .startOf('day')
+    .plus({ days: 6 })
+    .toFormat('yyyy-LL-dd');
 }
+
+function getJstMonthEndFromStart(monthStart) {
+  return toJstDateTime(monthStart)
+    .startOf('day')
+    .endOf('month')
+    .toFormat('yyyy-LL-dd');
+}
+
 
 module.exports = {
+  toJstDateTime,
   toJstYmd,
   isValidBar,
   getJstToday,
@@ -163,5 +162,7 @@ module.exports = {
   isJstFirstOfMonth,
   getJstWeekStart,
   getJstMonthStart,
+  getJstWeekEndFromStart,
+  getJstMonthEndFromStart,
   isPotentialTradingDay
 };

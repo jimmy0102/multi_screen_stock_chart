@@ -54,36 +54,24 @@ export class DatabaseManager {
         // 開発環境：プロジェクトルートのdataフォルダを使用
         dbPath = path.join(process.cwd(), 'data', 'stock_data.db');
       } else {
-        // 本番環境：複数のパスを試す
-        const possiblePaths = [
-          // アプリケーションと同じディレクトリのdataフォルダ
-          path.join(path.dirname(app.getPath('exe')), 'data', 'stock_data.db'),
-          // resourcesフォルダ内のdataフォルダ
-          path.join(process.resourcesPath, 'data', 'stock_data.db'),
-          // アプリケーションの親ディレクトリのdataフォルダ
-          path.join(path.dirname(app.getPath('exe')), '..', 'data', 'stock_data.db'),
-          // ユーザーデータディレクトリ
-          path.join(app.getPath('userData'), 'stock_data.db')
-        ];
-        
-        // 存在するパスを探す
-        dbPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[possiblePaths.length - 1];
-        
-        console.log('Checking paths:', possiblePaths);
-        console.log('Selected path:', dbPath);
+        // 本番環境：ユーザーデータディレクトリを使用（Mac/Windows両対応）
+        // Mac: ~/Library/Application Support/Multi-Screen Stock Chart/
+        // Windows: C:\Users\ユーザー名\AppData\Roaming\Multi-Screen Stock Chart\
+        dbPath = path.join(app.getPath('userData'), 'stock_data.db');
+        // console.log('Production database path:', dbPath);
       }
     } catch (error) {
       // Node.js単体環境の場合（スクリプト実行時）
       dbPath = path.join(process.cwd(), 'data', 'stock_data.db');
     }
     
-    console.log('Database path:', dbPath);
-    console.log('Database file exists:', fs.existsSync(dbPath));
+    // console.log('Database path:', dbPath);
+    // console.log('Database file exists:', fs.existsSync(dbPath));
     
     // データベースディレクトリが存在しない場合は作成
     const dbDir = path.dirname(dbPath);
     if (!fs.existsSync(dbDir)) {
-      console.log('Creating database directory:', dbDir);
+      // console.log('Creating database directory:', dbDir);
       fs.mkdirSync(dbDir, { recursive: true });
     }
     
@@ -178,7 +166,7 @@ export class DatabaseManager {
   getAllTickers(): Ticker[] {
     try {
       const result = this.db.prepare('SELECT * FROM tickers ORDER BY symbol').all() as Ticker[];
-      console.log('Found tickers:', result.length);
+      // console.log('Found tickers:', result.length);
       return result;
     } catch (error) {
       console.error('Error fetching tickers:', error);
@@ -261,20 +249,18 @@ export class DatabaseManager {
 
   // 5桁コードのティッカーを削除（Twelve Data時代の古いデータ清掃用）
   clearLegacyFiveDigitTickers(): void {
-    const deletedTickers = this.db.prepare(`
+    this.db.prepare(`
       DELETE FROM tickers 
       WHERE length(symbol) = 5 AND symbol LIKE '%0'
     `).run();
-    console.log(`Cleared ${deletedTickers.changes} legacy 5-digit tickers`);
   }
 
   // 5桁コードの株価データを削除
   clearLegacyFiveDigitStockData(): void {
-    const deletedData = this.db.prepare(`
+    this.db.prepare(`
       DELETE FROM stock_data 
       WHERE length(ticker) = 5 AND ticker LIKE '%0'
     `).run();
-    console.log(`Cleared ${deletedData.changes} legacy 5-digit stock data records`);
   }
 
   // Notes operations

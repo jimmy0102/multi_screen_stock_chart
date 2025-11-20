@@ -65,13 +65,10 @@ const LoginScreen: React.FC = () => {
       const result = await simpleAuthService.signInWithGoogle()
       console.log('[LoginScreen] Google auth initiated:', result)
       
-      // Electronの場合は一定時間後にローディングを停止
+      // Electronの場合は即座にメッセージを表示
       if (isElectron) {
-        setTimeout(() => {
-          console.log('[LoginScreen] Electron OAuth timeout, stopping loading...')
-          setLoading(false)
-          setError('Google認証が完了しませんでした。認証画面で認証を完了してからお待ちください。（最大3分）')
-        }, 30000) // 30秒後
+        setLoading(false)
+        setError('ブラウザでGoogle認証を完了してください。認証後、このアプリが自動的に更新されます。（最大3分）')
       }
       
       // OAuth認証はリダイレクトするため、ここでloadingをfalseにしない

@@ -5,14 +5,18 @@
 require('dotenv').config()
 const { createClient } = require('@supabase/supabase-js')
 const axios = require('axios')
-const { 
-  toJstYmd, 
-  isValidBar, 
-  getJstYesterday, 
-  getJstCurrentWeekStart, 
+const {
+  toJstDateTime,
+  toJstYmd,
+  isValidBar,
+  getJstYesterday,
+  getJstCurrentWeekStart,
   getJstCurrentMonthStart,
   isJstSaturday,
-  isJstFirstOfMonth
+  isJstFirstOfMonth,
+  getJstWeekStart,
+  getJstWeekEndFromStart,
+  getJstMonthEndFromStart
 } = require('./jst-utils')
 
 // 定数
@@ -51,28 +55,46 @@ const dateUtils = {
     return getJstCurrentWeekStart()
   },
 
+  getCurrentWeekEnd() {
+    return getJstWeekEndFromStart(this.getCurrentWeekStart())
+  },
+
   getLastWeekStart() {
     // JST基準で先週の開始日を計算
-    const { DateTime } = require('luxon')
-    const lastSunday = DateTime.now()
-      .setZone('Asia/Tokyo')
-      .minus({ weeks: 1 })
-      .minus({ days: DateTime.now().setZone('Asia/Tokyo').weekday % 7 })
-    return lastSunday.toFormat('yyyy-LL-dd')
+    const oneWeekAgo = toJstDateTime(new Date()).minus({ weeks: 1 })
+    return getJstWeekStart(oneWeekAgo.toJSDate())
+  },
+
+  getLastWeekEnd() {
+    return getJstWeekEndFromStart(this.getLastWeekStart())
   },
 
   getCurrentMonthStart() {
     return getJstCurrentMonthStart()
   },
 
+  getCurrentMonthEnd() {
+    return getJstMonthEndFromStart(this.getCurrentMonthStart())
+  },
+
   getLastMonthStart() {
     // JST基準で先月の開始日を計算
-    const { DateTime } = require('luxon')
-    const lastMonth = DateTime.now()
-      .setZone('Asia/Tokyo')
+    const lastMonth = toJstDateTime(new Date())
       .minus({ months: 1 })
       .startOf('month')
     return lastMonth.toFormat('yyyy-LL-dd')
+  },
+
+  getLastMonthEnd() {
+    return getJstMonthEndFromStart(this.getLastMonthStart())
+  },
+
+  getWeekEndFromStart(weekStart) {
+    return getJstWeekEndFromStart(weekStart)
+  },
+
+  getMonthEndFromStart(monthStart) {
+    return getJstMonthEndFromStart(monthStart)
   },
 
   isSaturday() {
@@ -98,14 +120,14 @@ class JQuantsAPI {
         mailaddress: JQUANTS_EMAIL,
         password: JQUANTS_PASSWORD
       })
-      
+
       this.refreshToken = response.data.refreshToken
-      
+
       if (!this.refreshToken) {
         console.error('❌ No refresh token found in response:', response.data)
         return false
       }
-      
+
       console.log('✅ J-Quants login successful')
       return true
     } catch (error) {
@@ -119,19 +141,19 @@ class JQuantsAPI {
       console.error('❌ No refresh token available')
       return false
     }
-    
+
     try {
       console.log('🔄 Getting access token...')
-      
+
       const response = await axios.post(`${JQUANTS_BASE_URL}/token/auth_refresh?refreshtoken=${encodeURIComponent(this.refreshToken)}`)
-      
+
       this.accessToken = response.data.idToken
-      
+
       if (!this.accessToken) {
         console.error('❌ No access token found in response:', response.data)
         return false
       }
-      
+
       console.log('✅ Access token obtained successfully')
       return true
     } catch (error) {
@@ -143,13 +165,13 @@ class JQuantsAPI {
   async getPrimeStocks() {
     try {
       console.log('📋 Fetching approved ticker list from ticker_master...')
-      
+
       // ticker_masterから4桁コードを取得（ページング対応で全件取得）
       const supabase = new SupabaseHelper()
       let allData = []
       let from = 0
       const pageSize = 1000
-      
+
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data, error } = await supabase.client
@@ -157,34 +179,34 @@ class JQuantsAPI {
           .select('symbol')
           .order('symbol')
           .range(from, from + pageSize - 1)
-        
+
         if (error) {
           console.error('❌ Failed to get ticker_master data:', error)
           return []
         }
-        
+
         if (!data || data.length === 0) break
-        
+
         allData = allData.concat(data)
         from += pageSize
-        
+
         console.log(`📄 Fetched ticker page: ${from - pageSize + 1} to ${from - pageSize + data.length}`)
       }
-      
+
       if (allData.length === 0) {
         console.error('❌ No tickers found in ticker_master')
         return []
       }
-      
+
       const data = allData
-      
+
       // 4桁コードを5桁（末尾0付き）に変換
       const fiveDigitTickers = data.map(row => row.symbol + '0')
-      
+
       console.log(`📊 Found ${data.length} approved tickers in ticker_master`)
       console.log(`🔢 Converted to ${fiveDigitTickers.length} five-digit format for J-Quants API`)
       console.log(`📋 Sample tickers: ${fiveDigitTickers.slice(0, 5).join(', ')}...`)
-      
+
       return fiveDigitTickers
     } catch (error) {
       console.error('❌ Failed to get ticker list from ticker_master:', error)
@@ -194,24 +216,24 @@ class JQuantsAPI {
 
   async getStockData(ticker, fromDate, toDate = null) {
     if (!this.accessToken) return null
-    
+
     try {
       const params = { code: ticker }
-      
+
       if (toDate) {
         params.from = fromDate
         params.to = toDate
       } else {
         params.date = fromDate
       }
-      
+
       const response = await axios.get(`${JQUANTS_BASE_URL}/prices/daily_quotes`, {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`
         },
         params
       })
-      
+
       return response.data.daily_quotes || []
     } catch (error) {
       console.error(`❌ Failed to get stock data for ${ticker}:`, error.response?.data || error.message)
@@ -244,34 +266,51 @@ function convertToSupabaseFormat(jquantsData) {
 }
 
 // OHLC計算ユーティリティ（0価格除外・バリデーション付き）
+function normalizeBar(record) {
+  if (!record) return null
+
+  return {
+    ...record,
+    open: Number(record.open),
+    high: Number(record.high),
+    low: Number(record.low),
+    close: Number(record.close),
+    volume: Number(record.volume ?? 0)
+  }
+}
+
 function calculateOHLC(dailyData) {
   if (!dailyData || dailyData.length === 0) return null
-  
+
+  const normalizedData = dailyData
+    .map(normalizeBar)
+    .filter(Boolean)
+
   // 有効なデータのみフィルタリング（0価格除外）
-  const validData = dailyData.filter(record => isValidBar(record))
-  
+  const validData = normalizedData.filter(record => isValidBar(record))
+
   if (validData.length === 0) {
     console.log('⚠️  No valid data after filtering out zero prices')
     return null
   }
-  
-  // 時系列順にソート
-  validData.sort((a, b) => new Date(a.date) - new Date(b.date))
-  
+
+  // 時系列順にソート（JST基準）
+  validData.sort((a, b) => toJstDateTime(a.date).toMillis() - toJstDateTime(b.date).toMillis())
+
   const result = {
     open: validData[0].open,
     close: validData[validData.length - 1].close,
     high: Math.max(...validData.map(d => d.high)),
     low: Math.min(...validData.map(d => d.low)),
-    volume: validData.reduce((sum, d) => sum + (d.volume || 0), 0)
+    volume: validData.reduce((sum, d) => sum + d.volume, 0)
   }
-  
+
   // 計算結果も検証
   if (!isValidBar(result)) {
     console.log('⚠️  Calculated OHLC is invalid:', result)
     return null
   }
-  
+
   return result
 }
 
@@ -283,36 +322,34 @@ class SupabaseHelper {
 
   async saveStockData(stockData) {
     if (!stockData || stockData.length === 0) return false
-    
+
     // 大量データの場合はバッチ処理で保存
     const batchSize = 500
     let totalSaved = 0
-    
+
     try {
       for (let i = 0; i < stockData.length; i += batchSize) {
         const batch = stockData.slice(i, i + batchSize)
-        
+
         const { error } = await this.client
           .from('stock_prices')
-          .upsert(batch, { 
+          .upsert(batch, {
             onConflict: 'ticker,date,timeframe',
-            ignoreDuplicates: true 
+            // ignoreDuplicates: true
           })
-        
+
         if (error) {
-          console.error(`❌ Failed to save batch ${Math.floor(i/batchSize) + 1}:`, error)
+          console.error(`❌ Failed to save batch ${Math.floor(i / batchSize) + 1}:`, error)
           return false
         }
-        
+
         totalSaved += batch.length
-        // 1レコードの場合はログを簡略化
-        if (stockData.length === 1) {
-          // 単一レコードの場合はログなし
-        } else {
-          console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(stockData.length/batchSize)}: ${batch.length} records (${totalSaved}/${stockData.length} total)`)
+        // バッチ処理のログ（単一レコードの場合は省略）
+        if (stockData.length > 1) {
+          console.log(`✅ Saved batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(stockData.length / batchSize)}: ${batch.length} records (${totalSaved}/${stockData.length} total)`)
         }
       }
-      
+
       // 単一レコード保存の場合はログを簡略化
       if (stockData.length > 1) {
         console.log(`🎉 Successfully saved all ${totalSaved} records to Supabase`)
@@ -330,7 +367,7 @@ class SupabaseHelper {
       let allData = []
       let from = 0
       const pageSize = 1000
-      
+
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data, error } = await this.client
@@ -339,28 +376,65 @@ class SupabaseHelper {
           .eq('timeframe', '1D')
           .eq('date', targetDate)
           .range(from, from + pageSize - 1)
-        
+
         if (error) {
           console.error('Error fetching updated tickers:', error)
           return []
         }
-        
+
         if (!data || data.length === 0) break
-        
+
         allData = allData.concat(data)
         from += pageSize
-        
+
         // 1000件以上ある場合のみページング情報を表示
         if (from === pageSize && data.length === pageSize) {
           console.log(`📄 Fetching more updated tickers... (${from} fetched)`)
         }
       }
-      
+
       const uniqueTickers = [...new Set(allData.map(item => item.ticker))]
       console.log(`📋 Found ${uniqueTickers.length} unique tickers updated on ${targetDate}`)
       return uniqueTickers
     } catch (error) {
       console.error('Error in getUpdatedTickers:', error)
+      return []
+    }
+  }
+
+  async getTickersForRange(startDate, endDate) {
+    try {
+      let allData = []
+      let from = 0
+      const pageSize = 1000
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await this.client
+          .from('stock_prices')
+          .select('ticker')
+          .eq('timeframe', '1D')
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('ticker', { ascending: true })
+          .range(from, from + pageSize - 1)
+
+        if (error) {
+          console.error('Error fetching tickers for range:', error)
+          return []
+        }
+
+        if (!data || data.length === 0) break
+
+        allData = allData.concat(data)
+        from += pageSize
+      }
+
+      const uniqueTickers = [...new Set(allData.map(item => item.ticker))]
+      console.log(`📋 Found ${uniqueTickers.length} tickers between ${startDate} and ${endDate}`)
+      return uniqueTickers
+    } catch (error) {
+      console.error('Error in getTickersForRange:', error)
       return []
     }
   }
@@ -375,12 +449,12 @@ class SupabaseHelper {
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: true })
-      
+
       if (error) {
         console.error(`Error fetching daily data for ${ticker}:`, error)
         return []
       }
-      
+
       return data || []
     } catch (error) {
       console.error(`Error in getDailyDataForPeriod for ${ticker}:`, error)

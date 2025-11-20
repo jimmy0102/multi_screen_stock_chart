@@ -5,13 +5,29 @@ import TickerController from './components/TickerController';
 import TickerList from './components/TickerList';
 import NoteDrawer from './components/NoteDrawer';
 import LoginScreen from './components/LoginScreen';
-import PWAInstaller from './components/PWAInstaller';
+import HorizontalLineToolbar from './components/HorizontalLineToolbar';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { simpleAuthService } from '../lib/auth-simple';
 import { database } from '../lib/database';
+import type { HorizontalLineSettings } from '../lib/types';
 import { getFavoritesSimple } from '../lib/direct-database';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './App.css';
+
+const DEFAULT_HORIZONTAL_LINE_SETTINGS: HorizontalLineSettings = {
+  color: '#FF0000',
+  width: 3
+};
+
+const normalizeLineSettings = (settings?: Partial<HorizontalLineSettings>): HorizontalLineSettings => {
+  const widthValue = settings?.width ?? DEFAULT_HORIZONTAL_LINE_SETTINGS.width;
+  const clampedWidth = Math.min(8, Math.max(1, Math.round(widthValue)));
+
+  return {
+    color: settings?.color || DEFAULT_HORIZONTAL_LINE_SETTINGS.color,
+    width: clampedWidth
+  };
+};
 
 // 新しいチャートレイアウト設定
 const chartLayouts = [
@@ -41,6 +57,8 @@ const App: React.FC = () => {
   const [sourceChart, setSourceChart] = useState<string>('');
   const [horizontalLineMode, setHorizontalLineMode] = useState(false);
   const [horizontalLineUpdate, setHorizontalLineUpdate] = useState(0); // 更新トリガー
+  const [horizontalLineSettings, setHorizontalLineSettings] = useState<HorizontalLineSettings>(DEFAULT_HORIZONTAL_LINE_SETTINGS);
+  const [showHorizontalToolbar, setShowHorizontalToolbar] = useState(false);
   const [authState, setAuthState] = useState({
     user: null as any,
     loading: true,
@@ -67,6 +85,32 @@ const App: React.FC = () => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (authState.loading) {
+      return;
+    }
+
+    const loadSettings = async () => {
+      try {
+        const settings = await database.getHorizontalLineSettings(authState.user?.id);
+        if (settings) {
+          setHorizontalLineSettings(normalizeLineSettings(settings));
+        }
+      } catch (error) {
+        console.error('[App] Failed to load horizontal line settings:', error);
+      }
+    };
+
+    loadSettings();
+  }, [authState.loading, authState.user]);
+
+  const toggleHorizontalMode = useCallback(() => {
+    if (!horizontalLineMode && !showHorizontalToolbar) {
+      setShowHorizontalToolbar(true);
+    }
+    setHorizontalLineMode(prev => !prev);
+  }, [horizontalLineMode, showHorizontalToolbar]);
 
   // 共通の初期化処理
   const loadAppData = useCallback(async (isRetry = false) => {
@@ -328,6 +372,16 @@ const App: React.FC = () => {
     setSourceChart(sourceChartTitle);
   }, []);
 
+  const handleHorizontalLineSettingsChange = useCallback(async (settings: HorizontalLineSettings) => {
+    const normalized = normalizeLineSettings(settings);
+    setHorizontalLineSettings(normalized);
+    try {
+      await database.saveHorizontalLineSettings(authState.user?.id, normalized);
+    } catch (error) {
+      console.error('[App] Failed to save horizontal line settings:', error);
+    }
+  }, [authState.user]);
+
   // 銘柄検索機能
   const searchTicker = (query: string) => {
     const displayTickers = appState.showFavoritesOnly 
@@ -386,8 +440,8 @@ const App: React.FC = () => {
     'Enter': cycleLevelUp, // 順次レベルアップ
     
     // 水平線モード
-    'h': () => setHorizontalLineMode(!horizontalLineMode),
-    'H': () => setHorizontalLineMode(!horizontalLineMode),
+    'h': () => toggleHorizontalMode(),
+    'H': () => toggleHorizontalMode(),
     
     // その他
     'Space': () => toggleFavoritesFilter(), // 従来機能との互換性
@@ -483,11 +537,37 @@ const App: React.FC = () => {
     gold: appState.tickers.filter(t => appState.watchlistLevels[t.symbol] === 3).length,
   };
 
+  const renderHorizontalLineControls = () => (
+    <>
+      <div className="hl-toolbar-toggle">
+        <button
+          className="hl-settings-button"
+          onClick={() => setShowHorizontalToolbar(prev => {
+            const next = !prev;
+            if (!next) {
+              setHorizontalLineMode(false);
+            }
+            return next;
+          })}
+        >
+          {showHorizontalToolbar ? '描画ツールを閉じる' : '描画ツールを開く'}
+        </button>
+      </div>
+      {showHorizontalToolbar && (
+        <HorizontalLineToolbar
+          isActive={horizontalLineMode}
+          onToggle={toggleHorizontalMode}
+          settings={horizontalLineSettings}
+          onChange={handleHorizontalLineSettingsChange}
+        />
+      )}
+    </>
+  );
+
   // フィルターで登録銘柄がない場合の処理
   if (filteredTickers.length === 0 && appState.currentFilter !== 'all') {
     return (
       <div className="app">
-        <PWAInstaller />
         <TickerController
           currentTicker=""
           currentTickerName=""
@@ -507,6 +587,7 @@ const App: React.FC = () => {
           onSearchTicker={searchTicker}
           watchlistCounts={watchlistCounts}
         />
+        {renderHorizontalLineControls()}
         
         <div className="loading-screen">
           <div className="loading-content">
@@ -537,7 +618,6 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
-      <PWAInstaller />
       <TickerController
         currentTicker={appState.currentTicker}
         currentTickerName={currentTickerData?.name || ''}
@@ -592,6 +672,7 @@ const App: React.FC = () => {
         onSearchTicker={searchTicker}
         watchlistCounts={watchlistCounts}
       />
+      {renderHorizontalLineControls()}
 
       <div className="chart-grid">
         {chartLayouts.map((layout) => (
@@ -608,10 +689,11 @@ const App: React.FC = () => {
               sourceChart={sourceChart}
               horizontalLineMode={horizontalLineMode}
               onHorizontalLineAdded={() => {
-                setHorizontalLineMode(false);
                 setHorizontalLineUpdate(prev => prev + 1); // 他のチャートも更新
               }}
               horizontalLineUpdate={horizontalLineUpdate}
+              lineSettings={horizontalLineSettings}
+              userId={authState.user?.id}
             />
           ) : (
             <div key={layout.position} className="chart-pane">

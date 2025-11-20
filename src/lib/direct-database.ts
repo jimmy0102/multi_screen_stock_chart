@@ -1,5 +1,14 @@
 // Direct HTTP implementation to bypass Supabase JavaScript library
 import type { TickerMaster, StockPrice, Watchlist, ChartDrawing, Note } from './supabase'
+import type { HorizontalLineSettings } from './types'
+
+const DEFAULT_HORIZONTAL_SETTINGS: HorizontalLineSettings = {
+  color: '#FF0000',
+  width: 3
+}
+
+const LINE_STORAGE_KEY = 'horizontalLinesByUser';
+const LEGACY_LINE_STORAGE_KEY = 'horizontalLines';
 
 const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY
@@ -11,6 +20,40 @@ class DirectSupabaseDatabase {
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
     'Content-Type': 'application/json',
     'Prefer': 'return=representation'
+  }
+
+  private getUserKey(userId?: string) {
+    return userId || 'guest'
+  }
+
+  private loadHorizontalLineStore(): Record<string, Record<string, ChartDrawing[]>> {
+    try {
+      const stored = localStorage.getItem(LINE_STORAGE_KEY)
+      if (stored) {
+        return JSON.parse(stored)
+      }
+
+      const legacy = localStorage.getItem(LEGACY_LINE_STORAGE_KEY)
+      if (legacy) {
+        const legacyData = JSON.parse(legacy)
+        const migrated = { guest: legacyData }
+        localStorage.setItem(LINE_STORAGE_KEY, JSON.stringify(migrated))
+        try {
+          localStorage.removeItem(LEGACY_LINE_STORAGE_KEY)
+        } catch (error) {
+          console.warn('[DirectDB] Failed to remove legacy horizontal line store:', error)
+        }
+        return migrated
+      }
+    } catch (error) {
+      console.error('[DirectDB] Failed to load horizontal line store:', error)
+    }
+
+    return {}
+  }
+
+  private saveHorizontalLineStore(store: Record<string, Record<string, ChartDrawing[]>>) {
+    localStorage.setItem(LINE_STORAGE_KEY, JSON.stringify(store))
   }
 
   private async request(endpoint: string, options: RequestInit = {}): Promise<any> {
@@ -106,9 +149,9 @@ class DirectSupabaseDatabase {
     try {
       // 4桁→5桁変換（末尾に0を追加）
       const fiveDigitTicker = ticker.length === 4 ? ticker + '0' : ticker
-      console.log(`[DirectDB] Converting ${ticker} → ${fiveDigitTicker} for stock_prices lookup`)
+      console.log(`[DirectDB] Converting ${ticker} → ${fiveDigitTicker} for stock_prices_all lookup`)
       
-      let endpoint = `/stock_prices?select=*&ticker=eq.${fiveDigitTicker}&timeframe=eq.${timeframe}&order=date.desc`
+      let endpoint = `/stock_prices_all?select=*&ticker=eq.${fiveDigitTicker}&timeframe=eq.${timeframe}&order=date.desc`
       if (limit) {
         endpoint += `&limit=${limit}`
       }
@@ -119,7 +162,7 @@ class DirectSupabaseDatabase {
       if (data.length === 0 && ticker !== fiveDigitTicker) {
         console.log(`[DirectDB] No data found with ${fiveDigitTicker}, trying original ${ticker}`)
         
-        let fallbackEndpoint = `/stock_prices?select=*&ticker=eq.${ticker}&timeframe=eq.${timeframe}&order=date.desc`
+        let fallbackEndpoint = `/stock_prices_all?select=*&ticker=eq.${ticker}&timeframe=eq.${timeframe}&order=date.desc`
         if (limit) {
           fallbackEndpoint += `&limit=${limit}`
         }
@@ -146,7 +189,7 @@ class DirectSupabaseDatabase {
       console.log(`[DirectDB] Converting ${ticker} → ${fiveDigitTicker} for count lookup`)
       
       // Supabase REST APIで件数を取得するための正しい方法
-      const response = await fetch(`${this.baseUrl}/stock_prices?select=*&ticker=eq.${fiveDigitTicker}&timeframe=eq.${timeframe}`, {
+      const response = await fetch(`${this.baseUrl}/stock_prices_all?select=*&ticker=eq.${fiveDigitTicker}&timeframe=eq.${timeframe}`, {
         method: 'HEAD',
         headers: {
           ...this.headers,
@@ -158,7 +201,7 @@ class DirectSupabaseDatabase {
         // 5桁で見つからない場合は、元の4桁コードでも検索
         if (ticker !== fiveDigitTicker) {
           console.log(`[DirectDB] No count data found with ${fiveDigitTicker}, trying original ${ticker}`)
-          const fallbackResponse = await fetch(`${this.baseUrl}/stock_prices?select=*&ticker=eq.${ticker}&timeframe=eq.${timeframe}`, {
+          const fallbackResponse = await fetch(`${this.baseUrl}/stock_prices_all?select=*&ticker=eq.${ticker}&timeframe=eq.${timeframe}`, {
             method: 'HEAD',
             headers: {
               ...this.headers,
@@ -193,7 +236,7 @@ class DirectSupabaseDatabase {
 
   async getLatestStockPrice(ticker: string): Promise<StockPrice | null> {
     try {
-      const data = await this.request(`/stock_prices?select=*&ticker=eq.${ticker}&timeframe=eq.1D&order=date.desc&limit=1`)
+      const data = await this.request(`/stock_prices_all?select=*&ticker=eq.${ticker}&timeframe=eq.1D&order=date.desc&limit=1`)
       return data.length > 0 ? data[0] : null
     } catch (error) {
       console.error('[DirectDB] Error fetching latest stock price:', error)
@@ -250,21 +293,23 @@ class DirectSupabaseDatabase {
   }
 
   // チャート描画関連 - ローカルストレージ実装
-  async getChartDrawings(ticker: string, _timeframe: string): Promise<ChartDrawing[]> {
+  async getChartDrawings(ticker: string, _timeframe: string, userId?: string): Promise<ChartDrawing[]> {
     try {
-      const stored = localStorage.getItem('horizontalLines')
-      if (!stored) return []
-      
-      const allLines = JSON.parse(stored)
-      const tickerLines = allLines[ticker] || []
-      
-      // ChartDrawing形式に変換（timeframeは無視して全て返す - 同期のため）
+      const allLines = this.loadHorizontalLineStore()
+      const userKey = this.getUserKey(userId)
+      const tickerLines = allLines[userKey]?.[ticker] || []
+
       return tickerLines.map((line: any) => ({
         ...line,
         ticker,
         timeframe: _timeframe,
         type: 'horizontal_line',
-        user_id: 'local'
+        user_id: line.user_id || userKey,
+        data: {
+          color: line.data?.color ?? DEFAULT_HORIZONTAL_SETTINGS.color,
+          width: Number.isFinite(line.data?.width) ? Number(line.data.width) : DEFAULT_HORIZONTAL_SETTINGS.width,
+          price: line.data?.price
+        }
       }))
     } catch (error) {
       console.error('[DirectDB] Error loading horizontal lines:', error)
@@ -276,7 +321,8 @@ class DirectSupabaseDatabase {
     ticker: string,
     _timeframe: string,
     type: string,
-    data: Record<string, any>
+    data: Record<string, any>,
+    userId?: string
   ): Promise<ChartDrawing | null> {
     if (type !== 'horizontal_line') {
       console.log('[DirectDB] Only horizontal_line type is supported')
@@ -284,27 +330,35 @@ class DirectSupabaseDatabase {
     }
 
     try {
-      const stored = localStorage.getItem('horizontalLines')
-      const allLines = stored ? JSON.parse(stored) : {}
-      
-      if (!allLines[ticker]) {
-        allLines[ticker] = []
+      const allLines = this.loadHorizontalLineStore()
+      const userKey = this.getUserKey(userId)
+
+      if (!allLines[userKey]) {
+        allLines[userKey] = {}
       }
-      
+
+      if (!allLines[userKey][ticker]) {
+        allLines[userKey][ticker] = []
+      }
+
       const newLine: ChartDrawing = {
         id: `hl_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
         ticker,
-        timeframe: '1D' as any, // 実際には全timeframeで共有
+        timeframe: '1D' as any,
         type: 'horizontal_line',
-        data,
-        user_id: 'local',
+        data: {
+          color: data.color ?? DEFAULT_HORIZONTAL_SETTINGS.color,
+          width: Number.isFinite(data.width) ? Number(data.width) : DEFAULT_HORIZONTAL_SETTINGS.width,
+          price: data.price
+        },
+        user_id: userKey,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
-      
-      allLines[ticker].push(newLine)
-      localStorage.setItem('horizontalLines', JSON.stringify(allLines))
-      
+
+      allLines[userKey][ticker].push(newLine)
+      this.saveHorizontalLineStore(allLines)
+
       console.log('[DirectDB] Saved horizontal line:', newLine)
       return newLine
     } catch (error) {
@@ -313,27 +367,80 @@ class DirectSupabaseDatabase {
     }
   }
 
-  async deleteChartDrawing(id: string): Promise<boolean> {
+  async updateChartDrawing(
+    id: string,
+    updates: Partial<Record<'price' | 'color' | 'width', any>>,
+    userId?: string
+  ): Promise<ChartDrawing | null> {
     try {
-      const stored = localStorage.getItem('horizontalLines')
-      if (!stored) return false
-      
-      const allLines = JSON.parse(stored)
-      
-      // 全tickerを検索して該当IDを削除
-      for (const ticker in allLines) {
-        const index = allLines[ticker].findIndex((line: any) => line.id === id)
+      const allLines = this.loadHorizontalLineStore()
+      const userKey = this.getUserKey(userId)
+      if (!allLines[userKey]) {
+        return null
+      }
+
+      let updated: ChartDrawing | null = null
+
+      for (const ticker of Object.keys(allLines[userKey])) {
+        const lines: ChartDrawing[] = allLines[userKey][ticker]
+        const index = lines.findIndex((line: ChartDrawing) => line.id === id)
+        if (index === -1) continue
+
+        const target = lines[index]
+        const nextData = {
+          ...target.data,
+          ...('price' in updates ? { price: updates.price } : {}),
+          ...('color' in updates ? { color: updates.color } : {}),
+          ...('width' in updates ? { width: updates.width } : {})
+        }
+
+        const merged: ChartDrawing = {
+          ...target,
+          data: {
+            color: nextData.color ?? DEFAULT_HORIZONTAL_SETTINGS.color,
+            width: Number.isFinite(nextData.width) ? Number(nextData.width) : DEFAULT_HORIZONTAL_SETTINGS.width,
+            price: nextData.price
+          },
+          updated_at: new Date().toISOString()
+        }
+
+        lines[index] = merged
+        updated = { ...merged, ticker }
+        break
+      }
+
+      if (updated) {
+        this.saveHorizontalLineStore(allLines)
+        console.log('[DirectDB] Updated horizontal line:', updated.id)
+      }
+
+      return updated
+    } catch (error) {
+      console.error('[DirectDB] Error updating horizontal line:', error)
+      return null
+    }
+  }
+
+  async deleteChartDrawing(id: string, userId?: string): Promise<boolean> {
+    try {
+      const allLines = this.loadHorizontalLineStore()
+      const userKey = this.getUserKey(userId)
+      if (!allLines[userKey]) return false
+
+      for (const ticker in allLines[userKey]) {
+        const lines = allLines[userKey][ticker]
+        const index = lines.findIndex((line: any) => line.id === id)
         if (index !== -1) {
-          allLines[ticker].splice(index, 1)
-          if (allLines[ticker].length === 0) {
-            delete allLines[ticker]
+          lines.splice(index, 1)
+          if (lines.length === 0) {
+            delete allLines[userKey][ticker]
           }
-          localStorage.setItem('horizontalLines', JSON.stringify(allLines))
+          this.saveHorizontalLineStore(allLines)
           console.log('[DirectDB] Deleted horizontal line:', id)
           return true
         }
       }
-      
+
       return false
     } catch (error) {
       console.error('[DirectDB] Error deleting horizontal line:', error)
@@ -355,6 +462,56 @@ class DirectSupabaseDatabase {
   subscribeToChartDrawings(_ticker: string, _timeframe: string, _callback: (data: any) => void) {
     console.log('[DirectDB] Real-time subscriptions not implemented with direct HTTP')
     return { unsubscribe: () => {} }
+  }
+
+  async getHorizontalLineSettings(userId?: string): Promise<HorizontalLineSettings> {
+    try {
+      const key = userId || 'guest'
+      const stored = localStorage.getItem('horizontalLineSettings')
+      if (!stored) {
+        return { ...DEFAULT_HORIZONTAL_SETTINGS }
+      }
+
+      const allSettings = JSON.parse(stored)
+      const settings = allSettings[key]
+      if (!settings) {
+        return { ...DEFAULT_HORIZONTAL_SETTINGS }
+      }
+
+      return {
+        color: typeof settings.color === 'string' ? settings.color : DEFAULT_HORIZONTAL_SETTINGS.color,
+        width: Number.isFinite(settings.width) ? Number(settings.width) : DEFAULT_HORIZONTAL_SETTINGS.width
+      }
+    } catch (error) {
+      console.error('[DirectDB] Error loading horizontal line settings:', error)
+      return { ...DEFAULT_HORIZONTAL_SETTINGS }
+    }
+  }
+
+  async saveHorizontalLineSettings(
+    userId: string | undefined,
+    settings: HorizontalLineSettings
+  ): Promise<HorizontalLineSettings> {
+    try {
+      const key = userId || 'guest'
+      const stored = localStorage.getItem('horizontalLineSettings')
+      const allSettings = stored ? JSON.parse(stored) : {}
+
+      allSettings[key] = {
+        color: settings.color,
+        width: Number(settings.width)
+      }
+
+      localStorage.setItem('horizontalLineSettings', JSON.stringify(allSettings))
+      console.log('[DirectDB] Saved horizontal line settings for', key, settings)
+      return {
+        color: settings.color,
+        width: Number(settings.width)
+      }
+    } catch (error) {
+      console.error('[DirectDB] Error saving horizontal line settings:', error)
+      return { ...DEFAULT_HORIZONTAL_SETTINGS }
+    }
   }
 }
 

@@ -45,7 +45,7 @@ class StockChartApp {
     });
 
     // カスタムプロトコルでアプリが開かれた時の処理（Windows/Linux）
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
+    app.on('second-instance', (event, commandLine, _workingDirectory) => {
       // OAuth認証のリダイレクトを検出
       const url = commandLine.find(arg => arg.startsWith('multiscreenstockchart://'));
       if (url) {
