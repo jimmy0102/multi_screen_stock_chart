@@ -445,9 +445,9 @@ const findLineNearCoordinate = useCallback((coordinateY: number) => {
       }
 
       try {
-        // より多くのデータを表示するために制限を緩和
-        const limit = timeFrame === '1D' ? 1000 : timeFrame === '1W' ? 500 : 100;
-        
+        // 一般的なチャートアプリの標準表示本数（50〜100本）
+        const limit = 100; // 日足: 約5ヶ月分、週足: 約2年分、月足: 約8年分
+
         // Supabaseから実際のデータを取得
         console.log('[ChartPane] Fetching real data from Supabase for:', ticker, timeFrame);
         const stockData = await database.getStockData(ticker, timeFrame, limit);
