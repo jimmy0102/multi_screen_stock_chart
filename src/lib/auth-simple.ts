@@ -180,9 +180,12 @@ class SimpleAuthService {
   async signUp(email: string, password: string) {
     const { data, error } = await supabase.auth.signUp({
       email,
-      password
+      password,
+      options: {
+        emailRedirectTo: 'https://jimmy0102.github.io/multi_screen_stock_chart/auth-success.html'
+      }
     })
-    
+
     if (error) throw error
     return data
   }

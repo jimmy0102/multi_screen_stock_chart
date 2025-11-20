@@ -128,18 +128,44 @@
     const error = params.get('error');
     const errorDescription = params.get('error_description');
 
+    // メール認証かどうかを判定
+    const type = params.get('type');
+    const isEmailVerification = type === 'signup' || type === 'email';
+
     if (error) {
       document.querySelector('h1').textContent = '❌ 認証エラー';
       document.querySelector('.container p:first-of-type').textContent = errorDescription || '認証に失敗しました。';
-      document.querySelector('.container p:last-of-type').textContent = 'アプリに戻ってもう一度お試しください。';
+      document.querySelector('.container p:nth-of-type(2)').textContent = 'アプリに戻ってもう一度お試しください。';
     } else {
-      // 成功: カスタムプロトコルでアプリに戻る
+      // 成功メッセージを更新
+      if (isEmailVerification) {
+        document.querySelector('h1').textContent = '✅ メールアドレス認証完了';
+        document.querySelector('.container p:nth-of-type(2)').textContent = '登録が完了しました。アプリでログインしてください。';
+      }
+
+      // カスタムプロトコルでアプリに戻る
       const redirectUrl = `multiscreenstockchart://auth/callback${window.location.search}${hash}`;
       console.log('Redirecting to app:', redirectUrl);
 
-      // アプリに戻る
+      // アプリに戻る（アプリがインストールされている場合）
       setTimeout(() => {
-        window.location.href = redirectUrl;
+        try {
+          window.location.href = redirectUrl;
+
+          // リダイレクトが成功したかチェック（2秒後）
+          setTimeout(() => {
+            // まだこのページにいる場合は、アプリがインストールされていない可能性がある
+            if (isEmailVerification) {
+              document.querySelector('.close-message').innerHTML =
+                '<strong>アプリに自動的に戻れませんでした。</strong><br>' +
+                'アプリがインストールされているデバイスでログインしてください。<br>' +
+                'このタブは閉じて構いません。';
+            }
+          }, 2000);
+        } catch (e) {
+          console.error('Failed to redirect to app:', e);
+          // アプリがない場合でもエラーにしない
+        }
       }, 1000);
     }
   </script>
