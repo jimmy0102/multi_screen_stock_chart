@@ -206,8 +206,8 @@ class SimpleAuthService {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // 外部ブラウザでの認証完了後、ユーザーが手動でアプリに戻る
-          redirectTo: 'https://yuzgwwnecgvulsrqbxng.supabase.co/auth/v1/callback',
+          // GitHub Pagesの認証完了ページ経由でアプリに戻る
+          redirectTo: 'https://jimmy0102.github.io/multi_screen_stock_chart/auth-success.html',
           skipBrowserRedirect: true
         }
       })

@@ -120,20 +120,27 @@
   </div>
 
   <script>
-    // 一応試してみる（動作しない場合が多い）
-    setTimeout(() => {
-      window.close();
-    }, 2000);
+    // URLパラメータを取得
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
 
-    // URLにエラーパラメータがある場合の処理
-    const urlParams = new URLSearchParams(window.location.search);
-    const error = urlParams.get('error');
-    const errorDescription = urlParams.get('error_description');
+    // エラーチェック
+    const error = params.get('error');
+    const errorDescription = params.get('error_description');
 
     if (error) {
       document.querySelector('h1').textContent = '❌ 認証エラー';
       document.querySelector('.container p:first-of-type').textContent = errorDescription || '認証に失敗しました。';
       document.querySelector('.container p:last-of-type').textContent = 'アプリに戻ってもう一度お試しください。';
+    } else {
+      // 成功: カスタムプロトコルでアプリに戻る
+      const redirectUrl = `multiscreenstockchart://auth/callback${window.location.search}${hash}`;
+      console.log('Redirecting to app:', redirectUrl);
+
+      // アプリに戻る
+      setTimeout(() => {
+        window.location.href = redirectUrl;
+      }, 1000);
     }
   </script>
 </body>
