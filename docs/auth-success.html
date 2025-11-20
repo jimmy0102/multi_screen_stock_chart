@@ -115,26 +115,15 @@
     <p>ログインが完了しました。</p>
 
     <div class="close-message">
-      このタブは <span class="countdown" id="countdown">3</span> 秒後に自動的に閉じます。
+      このタブを閉じて、アプリに戻ってください。
     </div>
   </div>
 
   <script>
-    // カウントダウン
-    let count = 3;
-    const countdownElement = document.getElementById('countdown');
-
-    const interval = setInterval(() => {
-      count--;
-      if (countdownElement) {
-        countdownElement.textContent = count;
-      }
-      if (count <= 0) {
-        clearInterval(interval);
-        // ウィンドウを閉じる（ブラウザによっては動作しない場合あり）
-        window.close();
-      }
-    }, 1000);
+    // 一応試してみる（動作しない場合が多い）
+    setTimeout(() => {
+      window.close();
+    }, 2000);
 
     // URLにエラーパラメータがある場合の処理
     const urlParams = new URLSearchParams(window.location.search);
