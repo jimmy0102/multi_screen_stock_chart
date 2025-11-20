@@ -28,7 +28,7 @@
     "trading",
     "lightweight-charts"
   ],
-  "author": "Jimmy",
+  "author": "SMART FLUENT LLC",
   "license": "MIT",
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -64,8 +64,8 @@
     "xlsx": "^0.18.5"
   },
   "build": {
-    "appId": "com.jimmy.multi-screen-stock-chart",
-    "productName": "Multi-Screen Stock Chart",
+    "appId": "com.smartfluent.multiscreenstockchart",
+    "productName": "MultiScreenStockChart",
     "directories": {
       "output": "release/v1.1.0"
     },
@@ -93,7 +93,8 @@
       },
       "category": "public.app-category.finance",
       "gatekeeperAssess": false,
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -108,7 +109,11 @@
       "deleteAppDataOnUninstall": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Multi-Screen Stock Chart"
+      "shortcutName": "MultiScreenStockChart",
+      "artifactName": "${productName}-${version}-win-${arch}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-win-${arch}-portable.${ext}"
     },
     "linux": {
       "target": "AppImage"
