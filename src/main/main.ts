@@ -20,7 +20,17 @@ class StockChartApp {
   private initializeApp() {
     // カスタムプロトコルを登録
     app.setAsDefaultProtocolClient('multiscreenstockchart');
-    
+
+    // Single Instance Lockを取得（重要: OAuth認証で複数起動を防ぐ）
+    const gotTheLock = app.requestSingleInstanceLock();
+
+    if (!gotTheLock) {
+      // 既に起動している場合は終了
+      console.log('[Main] Another instance is already running. Quitting...');
+      app.quit();
+      return;
+    }
+
     app.whenReady().then(() => {
       Menu.setApplicationMenu(null);
       this.createMainWindow();
